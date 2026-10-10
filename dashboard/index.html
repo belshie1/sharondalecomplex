@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sharondale — Caretaker Operations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="mark"><span class="dot"></span><span class="wordmark">SHARONDALE</span></div>
+      <span class="subtitle">Caretaker operations</span>
+    </div>
+
+    <nav class="nav" id="mainNav">
+      <span class="nav-label">Workspace</span>
+      <button class="nav-item active" data-view="tasks">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2.5"/><path d="M3 9h18"/><path d="M8 2.5v4M16 2.5v4"/></svg>
+        Tasks &amp; calendar
+      </button>
+      <button class="nav-item" data-view="complaints">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4V5Z"/><path d="M8 9h8M8 12.5h5"/></svg>
+        Complaints &amp; reports
+        <span class="count" id="navComplaintCount">0</span>
+      </button>
+      <button class="nav-item" id="weeklyReportNav">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M5 3.5h14v17H5z"/><path d="M9 8.5h6M9 12h6M9 15.5h3.5"/></svg>
+        Weekly report
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="avatar">MC</div>
+      <div>
+        <div class="who">Marco Conti</div>
+        <div class="role">Lead caretaker</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="eyebrow" id="todayLabel">Friday, 10 October</span>
+      <h2 class="title">Good morning, Marco</h2>
+    </div>
+    <div class="topbar-right">
+      <button class="bell-btn" id="bellBtn" aria-label="Notifications" title="3 unresolved issues">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 4 1.5 5.5 2 6.5H4c.5-1 2-2.5 2-6.5Z"/><path d="M9.5 19a2.5 2.5 0 0 0 5 0"/></svg>
+        <span class="badge" id="bellBadge">3</span>
+      </button>
+      <button class="btn btn-primary" id="newTaskBtn">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        New task
+      </button>
+    </div>
+  </header>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+
+    <!-- ===================== TASKS & CALENDAR VIEW ===================== -->
+    <section class="view active" id="view-tasks">
+
+      <div class="page-head">
+        <div>
+          <h1>This week's route</h1>
+          <p class="range" id="weekRange">Mon 6 - Sun 12 October - Sharondale Residence</p>
+        </div>
+        <div class="page-head-actions">
+          <button class="btn btn-ghost" id="openReportFromTasks">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M5 3.5h14v17H5z"/><path d="M9 8.5h6M9 12h6M9 15.5h3.5"/></svg>
+            Weekly report
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-top">
+            <span class="kpi-label">Today's tasks</span>
+            <span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2.5"/><path d="M3 9h18"/></svg></span>
+          </div>
+          <div class="kpi-value" id="kpiToday">0</div>
+          <div class="kpi-foot" id="kpiTodayFoot">scheduled for today</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-top">
+            <span class="kpi-label">Completed</span>
+            <span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7"/></svg></span>
+          </div>
+          <div class="kpi-value" id="kpiDone">0</div>
+          <div class="kpi-foot" id="kpiDoneFoot">of this week's tasks</div>
+        </div>
+        <div class="kpi-card coral">
+          <div class="kpi-top">
+            <span class="kpi-label">Open issues</span>
+            <span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4V5Z"/></svg></span>
+          </div>
+          <div class="kpi-value" id="kpiIssues">0</div>
+          <div class="kpi-foot">owner reports pending</div>
+        </div>
+        <div class="kpi-card amber">
+          <div class="kpi-top">
+            <span class="kpi-label">Next inspection</span>
+            <span class="kpi-icon"><svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></span>
+          </div>
+          <div class="kpi-value" style="font-size:19px; margin-top:14px;">Thu - 10:00</div>
+          <div class="kpi-foot">Building B - elevator safety check</div>
+        </div>
+      </div>
+
+      <!-- Quick add composer -->
+      <form class="composer" id="composer">
+        <div class="composer-head" id="composerToggle">
+          <div class="left">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            <h3>Quick-add task</h3>
+            <span class="tag">New</span>
+          </div>
+          <svg class="icon chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <div class="composer-body">
+          <div class="field">
+            <label for="f-title">Task title</label>
+            <input type="text" id="f-title" placeholder="e.g. Replace hallway bulb" required>
+          </div>
+          <div class="field">
+            <label for="f-location">Location</label>
+            <input type="text" id="f-location" placeholder="Block / unit" required>
+          </div>
+          <div class="field">
+            <label for="f-day">Due date</label>
+            <select id="f-day"></select>
+          </div>
+          <div class="field">
+            <label for="f-priority">Priority</label>
+            <select id="f-priority">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+          <div class="field" style="grid-column:1 / -1;">
+            <label>Photo attachment</label>
+            <div class="photo-field">
+              <div class="photo-drop" id="photoDrop">
+                <svg class="icon" viewBox="0 0 24 24" id="photoIcon"><path d="M4 7h3l1.5-2h7L17 7h3v12H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+                <input type="file" id="f-photo" accept="image/*">
+              </div>
+              <span class="photo-hint" id="photoHint">Attach a site photo (optional)</span>
+            </div>
+          </div>
+          <div class="composer-actions">
+            <button type="button" class="btn btn-ghost btn-sm" id="clearComposer">Clear</button>
+            <button type="submit" class="btn btn-primary btn-sm">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              Add to board
+            </button>
+          </div>
+        </div>
+      </form>
+
+      <!-- Calendar board + focus panel -->
+      <div class="content-grid">
+        <div class="board-card">
+          <div class="board-header" id="boardHeader"></div>
+          <div class="board-body" id="boardBody"></div>
+        </div>
+
+        <aside class="focus-card">
+          <h3>Today's focus</h3>
+          <div class="progress-wrap">
+            <svg class="ring" viewBox="0 0 80 80">
+              <circle class="bg" cx="40" cy="40" r="33"/>
+              <circle class="fg" id="ringFg" cx="40" cy="40" r="33" transform="rotate(-90 40 40)"/>
+            </svg>
+            <div>
+              <div class="ring-value" id="ringValue">0 / 0</div>
+              <div class="ring-label">tasks completed today</div>
+            </div>
+          </div>
+          <div class="legend">
+            <div class="legend-row"><span class="sw" style="background:var(--coral)"></span> High priority <b id="legendHigh">0</b></div>
+            <div class="legend-row"><span class="sw" style="background:var(--amber)"></span> Medium priority <b id="legendMed">0</b></div>
+            <div class="legend-row"><span class="sw" style="background:var(--forest)"></span> Low priority <b id="legendLow">0</b></div>
+          </div>
+          <div class="activity-feed">
+            <h4>Activity</h4>
+            <div class="activity-list" id="activityList"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ===================== COMPLAINTS & REPORTS VIEW ===================== -->
+    <section class="view" id="view-complaints">
+      <div class="page-head">
+        <div>
+          <h1>Complaints &amp; reports</h1>
+          <p class="range">Owner issues raised this week</p>
+        </div>
+        <div class="page-head-actions">
+          <button class="btn btn-ghost" id="openReportFromComplaints">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M5 3.5h14v17H5z"/><path d="M9 8.5h6M9 12h6M9 15.5h3.5"/></svg>
+            Weekly report
+          </button>
+        </div>
+      </div>
+
+      <div class="complaints-card">
+        <div class="complaints-head">
+          <span>Owner / apartment</span>
+          <span>Type</span>
+          <span>Age</span>
+          <span>Status</span>
+          <span>Actions</span>
+        </div>
+        <div id="complaintsList"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ============ WEEKLY REPORT MODAL ============ -->
+<div class="modal-overlay" id="reportModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <h2>Weekly report</h2>
+        <div class="sub" id="reportRange">6 - 12 October</div>
+      </div>
+      <button class="modal-close" id="closeReport" aria-label="Close">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="report-grid">
+        <div class="report-stat green"><div class="num" id="rCompleted">0</div><div class="lbl">Completed</div></div>
+        <div class="report-stat amber"><div class="num" id="rCarried">0</div><div class="lbl">Carried over</div></div>
+        <div class="report-stat coral"><div class="num" id="rOverdue">0</div><div class="lbl">Overdue</div></div>
+      </div>
+      <div class="report-list">
+        <div class="r-row"><span>Total tasks logged</span><b id="rTotal">0</b></div>
+        <div class="r-row"><span>Owner issues resolved</span><b id="rResolved">0</b></div>
+        <div class="r-row"><span>Open issues remaining</span><b id="rOpenIssues">0</b></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost btn-sm" id="closeReport2">Close</button>
+        <button class="btn btn-primary btn-sm" id="downloadReport">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/></svg>
+          Download report
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toastStack"></div>
+
+<script src="app.js" defer></script>
+</body>
+</html>
