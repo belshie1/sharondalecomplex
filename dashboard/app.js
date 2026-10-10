@@ -133,6 +133,8 @@
     document.getElementById("kpiDoneFoot").textContent = "of " + tasks.length + " this week's tasks";
     document.getElementById("kpiIssues").textContent = openIssues;
     document.getElementById("navComplaintCount").textContent = openIssues;
+    document.getElementById("bellBadge").textContent = openIssues;
+    document.getElementById("bellBtn").title = openIssues + " unresolved issue" + (openIssues === 1 ? "" : "s");
 
     const pct = todays.length ? Math.round((todayDone/todays.length)*100) : 0;
     const circumference = 2 * Math.PI * 33;

@@ -1,14 +1,11 @@
-Task,Location,Day,Status
-"Water leak under kitchen sink","Unit 12A",Tue,Overdue
-"Repair gate motor sensor","Main entrance",Mon,Overdue
-"Replace hallway bulb","Block A · Level 2",Mon,Completed
-"Clear gutters, north block","Block B roofline",Tue,Carried over
-"Pool pump filter check","Pool house",Tue,Carried over
-"Fix dripping tap","Unit 14B",Tue,Completed
-"Inspect fire extinguishers","Block C stairwell",Tue,Carried over
-"Garden irrigation timer reset","Courtyard",Tue,Completed
-"Paint touch-up, lobby wall","Main lobby",Wed,Carried over
-"Service boiler room","Basement plant room",Fri,Carried over
-"Replace laundry room lock","Block A laundry",Wed,Overdue
-"Window seal check","Unit 9C",Thu,Carried over
-"Garbage chute inspection","Block B",Sat,Carried over
+Task,Location,Day,Priority,Status
+"Pool filter back-flush","Clubhouse · Pool deck",Mon,medium,Completed
+"Replace hallway bulb","Block A · Floor 3",Mon,low,Completed
+"Elevator safety check","Block B · Lobby",Tue,high,Overdue
+"Irrigation timer reset","Garden · Zone 2",Tue,low,Carried over
+"Fix leaking tap - unit 14","Block C · Unit 14",Tue,high,Overdue
+"Gate motor lubrication","Main entrance",Tue,medium,Carried over
+"Litter sweep - car park","Basement P1",Tue,low,Completed
+"Replace fire extinguisher tag","Block A · Stairwell",Thu,medium,Carried over
+"Clean gutters - east wing","Block B · Roof",Fri,medium,Carried over
+"Repaint parking bay lines","Visitor car park",Sat,low,Carried over

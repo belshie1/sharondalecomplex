@@ -21,4 +21,10 @@ Open `dashboard/index.html` in a modern browser, or serve the project directory 
 - `dashboard/index.html` - application markup
 - `dashboard/styles.css` - visual design and responsive layout
 - `dashboard/app.js` - task, complaint, calendar, photo, and report interactions
-- `sharondale-weekly-report.csv` - sample weekly report export
+- `sharondale-weekly-report.csv` - sample weekly report export (mirrors the seeded data)
+
+## Notes
+
+The dashboard is fully client-side: tasks and complaints live in memory for the
+session and reset on reload. The weekly report downloads as a plain-text summary
+built from the current board state.
