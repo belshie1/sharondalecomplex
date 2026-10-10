@@ -1,6 +1,6 @@
-# Sharondale Caretaker Operations
+# Sharondale Complex Management
 
-A standalone caretaker operations dashboard for scheduling property tasks, tracking owner complaints, and producing a weekly report.
+Sharondale Complex Management application — a standalone caretaker operations dashboard for scheduling property tasks, tracking owner complaints, and producing a weekly report.
 
 ## Run locally
 
@@ -22,6 +22,8 @@ Open `dashboard/index.html` in a modern browser, or serve the project directory 
 - `dashboard/styles.css` - visual design and responsive layout
 - `dashboard/app.js` - task, complaint, calendar, photo, and report interactions
 - `sharondale-weekly-report.csv` - sample weekly report export (mirrors the seeded data)
+- `tests/serve.mjs` - local static dev/QA server (`node tests/serve.mjs`)
+- `tests/qa.mjs` - browser QA script covering the board, complaints, and report
 
 ## Notes
 
