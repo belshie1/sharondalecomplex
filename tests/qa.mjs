@@ -95,7 +95,21 @@ export default async function run(page, ui) {
     { name: "desktop", width: 1440, height: 900 },
   ]) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
-    viewportResults[viewport.name] = await page.evaluate(() => {
+    // The scroll-edge state is driven by a `scroll` listener, so it settles a
+    // frame after scrollLeft changes. Wait for the real state instead of
+    // asserting on the stale class left over from the previous scroll position.
+    // When the calendar fits (nothing to scroll) it is permanently "at end",
+    // so the start-of-scroll check only applies where scrolling is possible.
+    const edgeStartsVisible = await page.evaluate(async () => {
+      const scroller = document.querySelector("#calendarScroll");
+      if (scroller.scrollWidth <= scroller.clientWidth) return true; // fits: no edge to show
+      scroller.scrollLeft = scroller.scrollWidth;
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      scroller.scrollLeft = 0;
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+      return !scroller.classList.contains("at-end");
+    });
+    viewportResults[viewport.name] = await page.evaluate((edgeStartsVisible) => {
       const scroller = document.querySelector("#calendarScroll");
       scroller.scrollLeft = scroller.scrollWidth;
       const header = [...document.querySelectorAll("#boardHeader .day-head")];
@@ -119,10 +133,9 @@ export default async function run(page, ui) {
           document.querySelector("#mainNav").scrollWidth <= document.querySelector("#mainNav").clientWidth + 1,
         phoneRemoveTargetIsTouchFriendly: window.innerWidth !== 390 ||
           document.querySelector(".task-delete").getBoundingClientRect().width >= 40,
-        phoneCalendarEdgeStartsVisible: window.innerWidth !== 390 ||
-          !scroller.classList.contains("at-end"),
+        phoneCalendarEdgeStartsVisible: window.innerWidth !== 390 || edgeStartsVisible,
       };
-    });
+    }, edgeStartsVisible);
   }
   results.responsiveLayouts = viewportResults;
 
