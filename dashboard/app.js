@@ -28,6 +28,7 @@
 
   /* ---------------- Data model ---------------- */
   let uid = 100;
+  const DELETE_PASSWORD = "5879";
   const tasks = [
     { id: uid++, title:"Pool filter back-flush", location:"Clubhouse - Pool deck", day:"mon", priority:"medium", done:true, photo:null, moved:null },
     { id: uid++, title:"Replace hallway bulb", location:"Block A - Floor 3", day:"mon", priority:"low", done:true, photo:null, moved:null },
@@ -63,6 +64,52 @@
     stack.appendChild(el);
     setTimeout(function(){ el.classList.add("leaving"); setTimeout(function(){ el.remove(); }, 260); }, 2800);
   }
+  const RECURRING_TASKS_KEY = "sharondaleRecurringTasks";
+  let recurringTasks = [];
+  function loadRecurringTasks(){
+    try{
+      const saved = localStorage.getItem(RECURRING_TASKS_KEY);
+      if(saved === null) return [];
+      const parsed = JSON.parse(saved);
+      if(!Array.isArray(parsed) || parsed.some(function(task){
+        return !task || typeof task.id !== "string" ||
+          typeof task.title !== "string" || typeof task.location !== "string" ||
+          DAY_KEYS.indexOf(task.day) === -1 ||
+          ["low","medium","high"].indexOf(task.priority) === -1;
+      })){
+        throw new Error("Saved weekly tasks have an invalid format.");
+      }
+      return parsed;
+    }catch(error){
+      toast("Could not load weekly tasks: " + error.message);
+      return [];
+    }
+  }
+  function saveRecurringTasks(updatedTasks){
+    try{
+      localStorage.setItem(RECURRING_TASKS_KEY, JSON.stringify(updatedTasks));
+      recurringTasks = updatedTasks;
+      return true;
+    }catch(error){
+      toast("Could not save weekly task: " + error.message);
+      return false;
+    }
+  }
+  recurringTasks = loadRecurringTasks();
+  recurringTasks.forEach(function(task){
+    tasks.push({
+      id: uid++,
+      title: task.title,
+      location: task.location,
+      day: task.day,
+      priority: task.priority,
+      done: false,
+      photo: null,
+      moved: null,
+      recurring: true,
+      recurringId: task.id
+    });
+  });
   function timeNow(){
     const d = new Date();
     return d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
@@ -106,7 +153,9 @@
       '</div></div>' +
       thumb +
       '<div class="t-meta"><span class="t-pill">' + (t.priority[0].toUpperCase()+t.priority.slice(1)) + ' priority</span>' +
+      (t.recurring ? '<span class="t-recurring">Weekly</span>' : "") +
       (t.moved ? ('<span class="t-moved">Moved from ' + DAY_NAMES[t.moved] + '</span>') : "") +
+      '<button type="button" class="task-delete" aria-label="Remove ' + escapeHtml(t.title) + '" title="Remove task"><svg class="icon" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 14h12l1-14M9 7V4h6v3"/></svg></button>' +
       '</div></div>';
   }
 
@@ -152,7 +201,16 @@
     renderBoardHeader();
     renderBoardBody();
     renderKpis();
+    updateCalendarScrollState();
   }
+
+  const calendarScroll = document.getElementById("calendarScroll");
+  function updateCalendarScrollState(){
+    calendarScroll.classList.toggle("at-end",
+      calendarScroll.scrollLeft + calendarScroll.clientWidth >= calendarScroll.scrollWidth - 2);
+  }
+  calendarScroll.addEventListener("scroll", updateCalendarScrollState, {passive:true});
+  window.addEventListener("resize", updateCalendarScrollState);
 
   /* ---------------- Drag & drop + completion toggle ---------------- */
   let dragId = null;
@@ -169,8 +227,8 @@
       card.addEventListener("dragend", function(){
         card.classList.remove("dragging");
       });
-      card.addEventListener("click", function(){
-        if(dragMoved) return;
+      card.addEventListener("click", function(e){
+        if(dragMoved || e.target.closest(".task-delete")) return;
         const t = tasks.find(function(x){ return x.id === Number(card.dataset.id); });
         if(!t) return;
         t.done = !t.done;
@@ -178,13 +236,78 @@
         renderAll();
       });
       card.addEventListener("keydown", function(e){
+        if(e.target.closest(".task-delete")) return;
         if(e.key === "Enter" || e.key === " "){
           e.preventDefault();
           card.click();
         }
       });
+      card.querySelector(".task-delete").addEventListener("click", function(e){
+        e.stopPropagation();
+        const task = tasks.find(function(x){ return x.id === Number(card.dataset.id); });
+        if(task) requestTaskRemoval(task);
+      });
     });
   }
+
+  const deleteModal = document.getElementById("deleteModal");
+  const deleteForm = document.getElementById("deleteForm");
+  const deletePassword = document.getElementById("deletePassword");
+  const deleteError = document.getElementById("deleteError");
+  let pendingDeleteTaskId = null;
+
+  function requestTaskRemoval(task){
+    pendingDeleteTaskId = task.id;
+    deleteModal.querySelector(".delete-description").textContent = task.recurring
+      ? 'Remove "' + task.title + '" and stop it from repeating every week?'
+      : 'Remove "' + task.title + '" from this week’s board?';
+    deletePassword.value = "";
+    deleteError.textContent = "";
+    deleteModal.classList.add("open");
+    deletePassword.focus();
+  }
+
+  function closeDeleteModal(){
+    deleteModal.classList.remove("open");
+    deleteForm.reset();
+    deleteError.textContent = "";
+    pendingDeleteTaskId = null;
+  }
+
+  function removeTask(taskId){
+    const taskIndex = tasks.findIndex(function(task){ return task.id === taskId; });
+    if(taskIndex === -1) return;
+    const task = tasks[taskIndex];
+    if(task.recurring && task.recurringId){
+      const updatedRecurringTasks = recurringTasks.filter(function(template){
+        return template.id !== task.recurringId;
+      });
+      if(!saveRecurringTasks(updatedRecurringTasks)) return;
+    }
+    tasks.splice(taskIndex, 1);
+    logActivity("Removed \"" + task.title + "\"");
+    toast(task.recurring ? "Weekly task removed" : "Task removed from this week");
+    renderAll();
+  }
+
+  deleteForm.addEventListener("submit", function(e){
+    e.preventDefault();
+    if(deletePassword.value !== DELETE_PASSWORD){
+      deleteError.textContent = "Incorrect password. The task was not removed.";
+      deletePassword.select();
+      return;
+    }
+    const taskId = pendingDeleteTaskId;
+    closeDeleteModal();
+    if(taskId !== null) removeTask(taskId);
+  });
+  document.getElementById("cancelDelete").addEventListener("click", closeDeleteModal);
+  deleteModal.addEventListener("click", function(e){
+    if(e.target === deleteModal) closeDeleteModal();
+  });
+  document.addEventListener("keydown", function(e){
+    if(e.key === "Escape" && deleteModal.classList.contains("open")) closeDeleteModal();
+  });
 
   function attachColumnEvents(){
     document.querySelectorAll(".day-col").forEach(function(col){
@@ -251,6 +374,7 @@
     document.getElementById("f-title").value = "";
     document.getElementById("f-location").value = "";
     document.getElementById("f-priority").value = "medium";
+    document.getElementById("f-recurring").checked = false;
     resetPhotoField();
   });
 
@@ -261,12 +385,35 @@
     if(!title || !location) return;
     const day = document.getElementById("f-day").value;
     const priority = document.getElementById("f-priority").value;
-    tasks.push({ id: uid++, title: title, location: location, day: day, priority: priority, done:false, photo: pendingPhoto, moved:null });
+    const isRecurring = document.getElementById("f-recurring").checked;
+    if(isRecurring){
+      const recurringTask = {
+        id: "weekly-" + Date.now().toString(36) + "-" + uid,
+        title: title,
+        location: location,
+        day: day,
+        priority: priority
+      };
+      if(!saveRecurringTasks(recurringTasks.concat(recurringTask))) return;
+    }
+    tasks.push({
+      id: uid++,
+      title: title,
+      location: location,
+      day: day,
+      priority: priority,
+      done:false,
+      photo: pendingPhoto,
+      moved:null,
+      recurring:isRecurring,
+      recurringId:isRecurring ? recurringTasks[recurringTasks.length - 1].id : null
+    });
     logActivity("Added \"" + title + "\" to " + DAY_NAMES[day]);
-    toast("Task added to the board");
+    toast(isRecurring ? "Weekly task added and saved" : "Task added to the board");
     document.getElementById("f-title").value = "";
     document.getElementById("f-location").value = "";
     document.getElementById("f-priority").value = "medium";
+    document.getElementById("f-recurring").checked = false;
     daySelect.value = todayKey;
     resetPhotoField();
     renderAll();

@@ -9,6 +9,8 @@ Open `dashboard/index.html` in a modern browser, or serve the project directory 
 ## Included workflows
 
 - Create tasks with location, priority, due date, notes, and a local photo preview
+- Mark a task to repeat every week indefinitely; recurring task templates are saved in the browser
+- Require a password before removing tasks; removing a recurring task also stops future weekly repeats
 - Drag tasks across the weekly calendar and record move notes
 - Mark tasks complete for the day
 - Review complaints and owner reports
@@ -23,10 +25,12 @@ Open `dashboard/index.html` in a modern browser, or serve the project directory 
 - `dashboard/app.js` - task, complaint, calendar, photo, and report interactions
 - `sharondale-weekly-report.csv` - sample weekly report export (mirrors the seeded data)
 - `tests/serve.mjs` - local static dev/QA server (`node tests/serve.mjs`)
-- `tests/qa.mjs` - browser QA script covering the board, complaints, and report
+- `tests/qa.mjs` - browser QA script covering the board, password-protected task removal, complaints, and report
 
 ## Notes
 
-The dashboard is fully client-side: tasks and complaints live in memory for the
-session and reset on reload. The weekly report downloads as a plain-text summary
-built from the current board state.
+The dashboard is fully client-side: one-off tasks and complaints live in memory
+for the session and reset on reload. Weekly recurring task templates are saved
+in the browser and appear as fresh, incomplete tasks on their selected weekday
+each time the dashboard loads. The weekly report downloads as a plain-text
+summary built from the current board state.

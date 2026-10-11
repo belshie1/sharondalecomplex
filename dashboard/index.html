@@ -160,6 +160,13 @@
               <span class="photo-hint" id="photoHint">Attach a site photo (optional)</span>
             </div>
           </div>
+          <div class="field recurring-field">
+            <label class="recurring-option" for="f-recurring">
+              <input type="checkbox" id="f-recurring">
+              <span>Repeat every week</span>
+            </label>
+            <span class="photo-hint">This task will repeat indefinitely on the selected day.</span>
+          </div>
           <div class="composer-actions">
             <button type="button" class="btn btn-ghost btn-sm" id="clearComposer">Clear</button>
             <button type="submit" class="btn btn-primary btn-sm">
@@ -173,8 +180,12 @@
       <!-- Calendar board + focus panel -->
       <div class="content-grid">
         <div class="board-card">
-          <div class="board-header" id="boardHeader"></div>
-          <div class="board-body" id="boardBody"></div>
+          <div class="board-scroll" id="calendarScroll" role="region" aria-label="Weekly calendar, scroll horizontally to view all seven days" tabindex="0">
+            <div class="board-header" id="boardHeader"></div>
+            <div class="board-body" id="boardBody"></div>
+            <span class="calendar-edge" aria-hidden="true"></span>
+          </div>
+          <p class="calendar-hint">Swipe or scroll horizontally to view all seven days</p>
         </div>
 
         <aside class="focus-card">
@@ -264,6 +275,28 @@
       </div>
     </div>
   </div>
+</div>
+
+<div class="modal-overlay" id="deleteModal">
+  <form class="modal delete-modal" id="deleteForm">
+    <div class="modal-head">
+      <div>
+        <h2>Confirm task removal</h2>
+        <div class="sub delete-description"></div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="deletePassword">Enter password to continue</label>
+        <input type="password" id="deletePassword" inputmode="numeric" autocomplete="current-password" required>
+        <span class="delete-error" id="deleteError" role="alert"></span>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="cancelDelete">Cancel</button>
+        <button type="submit" class="btn btn-coral btn-sm">Remove task</button>
+      </div>
+    </div>
+  </form>
 </div>
 
 <div class="toast-stack" id="toastStack"></div>
