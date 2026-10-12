@@ -206,6 +206,13 @@
 
   const calendarScroll = document.getElementById("calendarScroll");
   function updateCalendarScrollState(){
+    // The seven-day board needs a usable minimum column width. When the board is
+    // too narrow to honour it the grid overflows horizontally: then, and only
+    // then, show the scroll-edge affordance. It was previously tied to the
+    // phone breakpoint, which hid the clipped desktop columns behind a hint
+    // that never appeared.
+    calendarScroll.classList.toggle("overflows",
+      calendarScroll.scrollWidth > calendarScroll.clientWidth + 1);
     calendarScroll.classList.toggle("at-end",
       calendarScroll.scrollLeft + calendarScroll.clientWidth >= calendarScroll.scrollWidth - 2);
   }

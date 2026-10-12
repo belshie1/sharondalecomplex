@@ -728,8 +728,8 @@
   .board-header,
   .board-body{
     width:100%;
-    min-width:0;
-    grid-template-columns:repeat(7,minmax(0,1fr));
+    min-width:800px;
+    grid-template-columns:repeat(7,minmax(96px,1fr));
     gap:10px;
     padding-left:14px;
     padding-right:14px;
@@ -737,7 +737,34 @@
   .board-header{padding-top:22px;padding-bottom:26px;}
   .board-body{padding-top:0;padding-bottom:0;}
   .calendar-hint{display:none;}
-  .calendar-edge{display:none;}
+
+  /* A horizontal-overflow gradient only makes sense where the calendar really
+     scrolls; it is toggled on when the board cannot fit its columns. */
+  .board-scroll.overflows .calendar-edge{
+    display:block;
+    position:absolute;
+    z-index:3;
+    top:0;
+    right:0;
+    bottom:0;
+    width:38px;
+    pointer-events:none;
+    opacity:1;
+    transition:opacity .18s ease;
+    background:linear-gradient(90deg,transparent,var(--card) 86%);
+  }
+  .board-scroll.overflows.at-end .calendar-edge{opacity:0;}
+  .board-scroll.overflows .calendar-edge::after{
+    position:absolute;
+    content:"";
+    right:12px;
+    top:calc(50% - 5px);
+    width:9px;
+    height:9px;
+    border-top:2px solid var(--forest);
+    border-right:2px solid var(--forest);
+    transform:rotate(45deg);
+  }
 
   @media (max-width:920px){
     .board-scroll{
@@ -787,31 +814,6 @@
       padding:8px 28px 0 12px;
       color:var(--muted);
       font-size:12px;
-    }
-    .calendar-edge{
-      display:block;
-      position:absolute;
-      z-index:3;
-      top:0;
-      right:0;
-      bottom:0;
-      width:38px;
-      pointer-events:none;
-      opacity:1;
-      transition:opacity .18s ease;
-      background:linear-gradient(90deg,transparent,var(--card) 86%);
-    }
-    .board-scroll.at-end .calendar-edge{opacity:0;}
-    .board-scroll:not(.at-end) .calendar-edge::after{
-      position:absolute;
-      content:"";
-      right:12px;
-      top:calc(50% - 5px);
-      width:9px;
-      height:9px;
-      border-top:2px solid var(--forest);
-      border-right:2px solid var(--forest);
-      transform:rotate(45deg);
     }
     .sidebar{
       overflow-x:hidden;

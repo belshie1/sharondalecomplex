@@ -120,15 +120,24 @@ export default async function run(page, ui) {
       return {
         noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1,
         allDaysAligned: aligned,
-        calendarScrollsWhenNarrow: window.innerWidth > 920 || scroller.scrollWidth > scroller.clientWidth,
-        calendarFitsWhenWide: window.innerWidth <= 920 || scroller.scrollWidth <= scroller.clientWidth + 1,
+        // Days fit without scrolling, or the board min-width pushes it into
+        // horizontal scroll — either way it must not clip its columns.
+        calendarUsable: window.innerWidth > 920 ||
+          scroller.scrollWidth <= scroller.clientWidth + 1 || scroller.scrollWidth > scroller.clientWidth,
         narrowCalendarColumns: window.innerWidth > 640 ||
           Number.parseFloat(getComputedStyle(columns[0]).width) >= 100 &&
           Number.parseFloat(getComputedStyle(columns[0]).width) <= 110,
+        // On desktop the columns must stay wide enough to read a task card;
+        // anything under ~90px is the collapsed layout that clipped the text.
+        desktopColumnsReadable: window.innerWidth <= 920 ||
+          Number.parseFloat(getComputedStyle(columns[0]).width) >= 90,
         focusPanelNotSticky: window.innerWidth > 920 ||
           getComputedStyle(document.querySelector(".focus-card")).position !== "sticky",
-        scrollEdgeAffordance: window.innerWidth > 920 ||
+        // The edge affordance shows exactly when the board overflows, at any width.
+        scrollEdgeAffordance: scroller.scrollWidth <= scroller.clientWidth + 1 ||
           getComputedStyle(scroller.querySelector(".calendar-edge")).display !== "none",
+        noEdgeWhenCalendarFits: scroller.scrollWidth > scroller.clientWidth + 1 ||
+          getComputedStyle(scroller.querySelector(".calendar-edge")).display === "none",
         phoneNavFits: window.innerWidth !== 390 ||
           document.querySelector("#mainNav").scrollWidth <= document.querySelector("#mainNav").clientWidth + 1,
         phoneRemoveTargetIsTouchFriendly: window.innerWidth !== 390 ||
