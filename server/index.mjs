@@ -290,4 +290,22 @@ server.listen(port, () => {
   }
 });
 
+// Hosts send SIGTERM on deploy or restart. Close the open event streams and the
+// database first, so a redeploy cannot interrupt a write mid-transaction.
+function shutdown(signal) {
+  console.log(`${signal} received, shutting down.`);
+  for (const res of clients) {
+    try { res.end(); } catch (e) { /* already closed */ }
+  }
+  clients.clear();
+  server.close(() => {
+    try { db.close(); } catch (e) { /* already closed */ }
+    process.exit(0);
+  });
+  // Do not hang forever if a connection refuses to drain.
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
 export { server, broadcast, db };

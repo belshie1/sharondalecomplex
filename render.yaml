@@ -1,0 +1,34 @@
+# Render blueprint for the Sharondale dashboard.
+#
+# Deploy with:  Render dashboard -> New -> Blueprint -> pick this repository.
+# Render reads this file and provisions everything below, so there is no form
+# filling beyond connecting the repo.
+#
+# The disk is the important part: without it the SQLite file is wiped on every
+# deploy and the board resets. It does require a paid instance type on Render,
+# since free instances do not support persistent disks.
+services:
+  - type: web
+    name: sharondale-dashboard
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # Render sets PORT; the server reads it. Declared for clarity.
+      - key: PORT
+        value: "3000"
+      - key: SHARONDALE_DB
+        value: /app/data/sharondale.db
+      # Set this in the Render dashboard to lock down writes. Generate one with:
+      #   openssl rand -hex 24
+      # Then put the same value in dashboard/index.html as
+      #   <script>window.SHARONDALE_TOKEN = "...";</script>
+      # Without it anyone who can reach the URL can change the board.
+      - key: SHARONDALE_TOKEN
+        sync: false
+    disk:
+      name: sharondale-data
+      mountPath: /app/data
+      sizeGB: 1

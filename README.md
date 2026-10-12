@@ -88,50 +88,29 @@ server returns. It is a mirror of the server, never the source of truth.
 
 ## Deploying it to a cloud host
 
-This runs on any host that can run Node. Two things matter:
+See **[DEPLOY.md](DEPLOY.md)** for the full walkthrough - it covers a Render
+blueprint deploy, plain Docker, and Fly/Railway/VPS, plus how to generate and
+apply the write token.
 
-**1. Persist the database.** `data/sharondale.db` is the whole board. Most hosts
-have an ephemeral filesystem, so mount a **persistent disk/volume** at `data/`
-or set `SHARONDALE_DB` to a path on one. Without this the board resets on every
-deploy.
+In short, two things matter:
 
-```bash
-SHARONDALE_DB=/var/data/sharondale.db npm start
-```
+1. **Mount a persistent disk** for the database. Most hosts have an ephemeral
+   filesystem, so without this the board resets on every deploy. Set
+   `SHARONDALE_DB` to a path on the volume, or mount it at `/app/data`.
+2. **Set `SHARONDALE_TOKEN`** before the URL is public, or anyone who finds it can
+   change the board.
 
-**2. Protect writes before exposing it publicly.** By default the API is open:
-anyone who can reach the port can change the board. Set a token and give the page
-the same value:
+Deploy artefacts included in the repo:
 
-```bash
-SHARONDALE_TOKEN=$(openssl rand -hex 24) npm start
-```
+| File | Purpose |
+|---|---|
+| `Dockerfile` | Self-contained image, no build step, health check included. |
+| `render.yaml` | Render blueprint: web service, disk, health check, token. |
+| `Procfile` | For buildpack-based hosts such as Heroku. |
+| `.dockerignore` | Keeps local data and secrets out of the image. |
 
-```html
-<!-- in dashboard/index.html, before app.js -->
-<script>window.SHARONDALE_TOKEN = "the-same-value";</script>
-```
-
-Requests without a matching `X-Sharondale-Token` header are refused with 401. The
-startup banner warns loudly when the token is unset.
-
-Typical steps on Render/Railway/Fly/a VPS:
-
-```bash
-# build: none needed, there are no dependencies
-npm start                      # start command
-```
-
-Then point a domain or subdomain at it. Note the write token is visible to anyone
-who can view the page source, so it stops casual tampering rather than a
-determined attacker; add real authentication if the board holds anything
-sensitive.
-
-### Swapping the database
-
-`server/db.mjs` is the only file that touches storage, and it exports exactly
-four functions (`readAll`, `replaceBoard`, `isSeeded`, `closeDb`). Replacing the
-SQLite calls with Postgres or Supabase means rewriting that one file.
+`server/db.mjs` is the only file that touches storage, so moving to Postgres or
+Supabase means rewriting that one file.
 
 The roster of people lives on the server too, so a name added on one device is
 immediately available everywhere.
