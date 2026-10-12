@@ -36,7 +36,7 @@ export default async function run(page) {
   await page.evaluate(() => {
     document.getElementById("tokenInput").value = "definitely-wrong";
   });
-  await page.locator("#tokenForm button[type=submit]").dispatchEvent("click");
+  await page.evaluate(() => document.getElementById("tokenForm").requestSubmit());
   await page.waitForTimeout(1500);
   results.wrongCodeRefused = (await page.locator("#tokenError").innerText()).includes("not accepted");
   results.stillLockedAfterWrongCode = (await page.locator("#saveState").innerText()).includes("Locked");
@@ -46,7 +46,7 @@ export default async function run(page) {
     const el = document.getElementById("tokenInput");
     el.value = "secret123";
   });
-  await page.locator("#tokenForm button[type=submit]").dispatchEvent("click");
+  await page.evaluate(() => document.getElementById("tokenForm").requestSubmit());
   await page.waitForTimeout(1800);
   results.modalClosedAfterUnlock = await page.locator("#tokenModal").evaluate(el => !el.classList.contains("open"));
   results.chipShowsSaved = (await page.locator("#saveState").innerText()).trim() === "Saved";
@@ -58,7 +58,7 @@ export default async function run(page) {
     document.getElementById("f-location").value = "Block L";
     document.getElementById("f-assignee").value = "";
   }, marker);
-  await page.locator("#composer button[type=submit]").dispatchEvent("click");
+  await page.evaluate(() => document.getElementById("composer").requestSubmit());
   await page.waitForTimeout(2000);
   const stored = await page.evaluate(async () => {
     const r = await fetch("/api/board");

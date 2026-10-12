@@ -65,6 +65,20 @@ export async function resetBoard(page, { reload = true } = {}) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(board),
     });
+
+    // Confirm the server holds the state we just asked for. Suites share one
+    // backend, so without this a later suite can start while an earlier save is
+    // still settling and read a stale board.
+    const expected = board.tasks.length;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const res = await fetch("/api/board");
+      const current = await res.json();
+      const hasRoster = Array.isArray(current.people) && current.people.length === board.people.length;
+      const matches = hasRoster && current.tasks.length === expected &&
+        current.shopping.length === board.shopping.length;
+      if (matches) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
   });
 
   if (reload) {

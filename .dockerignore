@@ -16,5 +16,4 @@ data
 README.md
 Dockerfile
 .dockerignore
-render.yaml
 sharondale-weekly-report.csv

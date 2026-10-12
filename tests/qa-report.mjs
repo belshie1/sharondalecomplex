@@ -18,7 +18,7 @@ export default async function run(page) {
     document.getElementById("f-created-by").value = "Elena Ruiz";
     document.getElementById("f-assignee").value = "Tomas Brandt";
   }, TASK);
-  await page.locator("#composer button[type=submit]").dispatchEvent("click");
+  await page.evaluate(() => document.getElementById("composer").requestSubmit());
   await page.waitForTimeout(1200);
 
   await page.locator('.nav-item[data-view="complaints"]').dispatchEvent("click");

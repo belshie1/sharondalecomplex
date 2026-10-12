@@ -47,6 +47,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - `tests/qa-shopping.mjs` - browser QA script covering the shopping list, tick-to-remove, and persistence
 - `tests/qa-people.mjs` - browser QA script covering the People roster and the Created by field
 - `tests/qa-report.mjs` - browser QA script covering the printable PDF report
+- `tests/qa-token.mjs` - browser QA script covering the access-code lock
 - `tests/run-all.mjs` - runs every QA suite against a throwaway backend (`npm test`)
 - `tests/qa-backend.mjs` - proves data is stored server-side and visible from a second device
 - `tests/helpers.mjs` - shared QA helpers, including a board reset
@@ -88,15 +89,16 @@ server returns. It is a mirror of the server, never the source of truth.
 
 ## Deploying it to a cloud host
 
-See **[DEPLOY.md](DEPLOY.md)** for the full walkthrough - it covers a Render
-blueprint deploy, plain Docker, and Fly/Railway/VPS, plus how to generate and
-apply the write token.
+See **[DEPLOY.md](DEPLOY.md)** for the full walkthrough - it covers a single Node
+host (Docker), Netlify, and Fly/Railway/VPS, plus how to generate and apply the
+write token.
 
 In short, two things matter:
 
-1. **Mount a persistent disk** for the database. Most hosts have an ephemeral
-   filesystem, so without this the board resets on every deploy. Set
-   `SHARONDALE_DB` to a path on the volume, or mount it at `/app/data`.
+1. **Keep the database persistent.** Most hosts have an ephemeral filesystem, so
+   without this the board resets on every deploy. Set `SHARONDALE_DB` to a path
+   on a mounted volume, or mount it at `/app/data`. On Netlify, SQLite cannot be
+   used at all: the database has to move to Postgres.
 2. **Set `SHARONDALE_TOKEN`** before the URL is public, or anyone who finds it can
    change the board. There is nothing to paste into the repo: open the dashboard
    once and enter the code when prompted. It is stored in that browser and never
@@ -107,7 +109,6 @@ Deploy artefacts included in the repo:
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Self-contained image, no build step, health check included. |
-| `render.yaml` | Render blueprint: web service, disk, health check, token. |
 | `Procfile` | For buildpack-based hosts such as Heroku. |
 | `.dockerignore` | Keeps local data and secrets out of the image. |
 

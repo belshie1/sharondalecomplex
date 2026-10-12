@@ -13,7 +13,7 @@
  *
  * A visible shared board cannot be done with localStorage, so this is the piece
  * that makes the data live somewhere other than one browser. To deploy, run this
- * on any Node host (Render, Railway, Fly, a VPS) and point a custom domain at it.
+ * on any Node host (Railway, Fly, a VPS) and point a custom domain at it.
  */
 import http from "node:http";
 import fs from "node:fs";

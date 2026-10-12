@@ -1,39 +1,27 @@
 # Deploying Sharondale
 
-The app is a single Node process that serves both the dashboard and its API, and
-keeps everything in one SQLite file. That makes deployment simple, with two
-things that must be right:
+The app has two parts:
 
-1. **A persistent disk for the database.** Most hosts give you an ephemeral
-   filesystem, so without this the board resets on every deploy.
-2. **A write token.** Otherwise anyone who finds the URL can change the board.
+- a **dashboard** (static HTML/CSS/JS in `dashboard/`)
+- a **backend** (a Node API over a database in `server/`)
 
-Everything below has been tested by building and running the container locally,
-including data surviving a restart.
+They can be hosted together on one Node host, or split - which is what Netlify
+requires, because Netlify serves the static files and runs the API as serverless
+functions.
+
+Two things must be right whatever you choose:
+
+1. **The database must be persistent.** A file on disk does not survive a deploy
+   on most hosts, so the board would reset.
+2. **Writes must be protected.** Otherwise anyone who finds the URL can change or
+   wipe the board.
 
 ---
 
-## Option A - Render (blueprint, fewest clicks)
+## Option A - Single Node host (simplest)
 
-`render.yaml` in this repo describes the whole service, so Render only needs to
-be pointed at the repository.
-
-1. Create a free account at <https://render.com> and connect your GitHub.
-2. **New → Blueprint**, pick `belshie1/sharondalecomplex`, and Confirm.
-3. Render reads `render.yaml` and provisions:
-   - a Docker web service on `plan: starter`
-   - a 1 GB disk mounted at `/app/data` (where the database lives)
-   - a health check on `/api/health`
-4. When prompted for `SHARONDALE_TOKEN`, paste a generated secret (see below).
-5. Wait for the first build, then open the URL Render gives you.
-
-**Choose "starter" or higher.** The free instance type does not support
-persistent disks, so on free the board would reset on every deploy. This is the
-one place where deploying properly costs a few dollars a month.
-
-## Option B - Any host that runs Docker
-
-The `Dockerfile` is self-contained and has no build steps.
+The backend already serves the dashboard, so this needs one service and no
+changes. Works on Railway, Fly.io, Koyeb, a VPS, or anything that runs Docker.
 
 ```bash
 docker build -t sharondale .
@@ -44,12 +32,7 @@ docker run -d --name sharondale \
   sharondale
 ```
 
-Then put a reverse proxy (nginx, Caddy, Cloudflare Tunnel) in front for HTTPS.
-`-v sharondale-data:/app/data` is the persistent volume - do not omit it.
-
-## Option C - Fly.io / Railway / a VPS
-
-Use the same `Dockerfile`. Set these environment variables:
+`-v sharondale-data:/app/data` is the persistent volume - **do not omit it**.
 
 | Variable | Purpose |
 | --- | --- |
@@ -57,8 +40,34 @@ Use the same `Dockerfile`. Set these environment variables:
 | `SHARONDALE_TOKEN` | Required to make writes safe. |
 | `SHARONDALE_DB` | Path to the database, e.g. `/app/data/sharondale.db`. |
 
-Mount a volume at the database's directory. On Fly that is `fly volumes create`
-plus a `[mounts]` entry; on Railway it is a volume on the service.
+Then mount a volume at the database's directory and put HTTPS in front.
+
+## Option B - Netlify
+
+Netlify serves the dashboard and runs the API as serverless functions. That means
+**SQLite cannot be used**: Netlify's filesystem is ephemeral, so a writable
+`.db` file is lost between requests. The database has to move to a hosted one -
+[Netlify Database](https://docs.netlify.com/build/data-and-storage/netlify-database/)
+is built into the platform and is the least moving parts.
+
+This is a port, not a configuration change. What it involves:
+
+1. The API routes in `server/index.mjs` become Netlify Functions.
+2. `server/db.mjs` is reimplemented against Postgres. It is the only file that
+   touches storage - it exports `readAll`, `replaceBoard`, `isSeeded` and
+   `closeDb` - so the schema and queries carry over.
+3. **Live sync changes.** Serverless functions cannot hold a server-sent-events
+   stream open, so the dashboard polls for changes instead of receiving them.
+4. Claim the database branch; an unclaimed Netlify database is deleted after a
+   period, taking its data with it.
+
+The dashboard's API contract stays the same, so `app.js` needs little change.
+
+## Option C - Fly.io / Railway / a VPS
+
+Use the same `Dockerfile` as Option A, with a volume mounted at the database's
+directory. On Fly that is `fly volumes create` plus a `[mounts]` entry; on
+Railway it is a volume on the service.
 
 ---
 

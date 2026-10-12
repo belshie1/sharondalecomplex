@@ -37,18 +37,17 @@ export default async function run(page) {
 
   // --- Adding a person ----------------------------------------------------
   const NAME = marker("Casey Diaz");
-  // The runner's script-mode navigation can leave the page's load state
-  // unsettled (it keeps a server-sent-events socket open), which makes
-  // Playwright's actionability checks stall on an otherwise working form. Set
-  // the fields directly so the assertion tests the app, not the harness.
+  // Set the fields directly: Playwright's actionability checks can stall on a
+  // page whose load state the runner left unsettled, and the assertions here are
+  // about the app, not the harness. The form is then submitted through
+  // requestSubmit(), because a dispatched click is untrusted and does not trigger
+  // the browser's default submit behaviour.
   await page.evaluate((name) => {
-    const nameEl = document.getElementById("peopleName");
-    const roleEl = document.getElementById("peopleRole");
-    nameEl.value = name;
-    roleEl.value = "Electrician";
+    document.getElementById("peopleName").value = name;
+    document.getElementById("peopleRole").value = "Electrician";
+    document.getElementById("peopleForm").requestSubmit();
   }, NAME);
-  await page.locator("#peopleForm button[type=submit]").dispatchEvent("click");
-  await page.waitForTimeout(700);
+  await page.waitForSelector('.person-row:has-text("' + NAME + '")', { timeout: 10000 });
   const added = page.locator(".person-row", { hasText: NAME });
   results.personAdded = (await added.count()) === 1;
   results.personRoleShown = await added.evaluate(el => el.innerText.includes("Electrician"));
@@ -68,7 +67,7 @@ export default async function run(page) {
   await page.locator('#mainNav .nav-item[data-view="people"]').dispatchEvent("click");
   await page.waitForTimeout(200);
   await page.evaluate((name) => { document.getElementById("peopleName").value = name; }, NAME);
-  await page.locator("#peopleForm button[type=submit]").dispatchEvent("click");
+  await page.evaluate(() => document.getElementById("peopleForm").requestSubmit());
   await page.waitForTimeout(500);
   const afterDup = await page.locator("#peopleList .person-row").count();
   results.duplicatePersonRejected = afterDup === seeded + 1;
@@ -83,7 +82,7 @@ export default async function run(page) {
     document.getElementById("f-created-by").value = creator;
     document.getElementById("f-assignee").value = "Elena Ruiz";
   }, { task: TASK, creator: NAME });
-  await page.locator("#composer button[type=submit]").dispatchEvent("click");
+  await page.evaluate(() => document.getElementById("composer").requestSubmit());
   await page.waitForTimeout(1200);
 
   const card = page.locator(".task-card", { hasText: TASK });
@@ -105,7 +104,13 @@ export default async function run(page) {
     sel.value = "Tomas Brandt";
     sel.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  await page.waitForTimeout(600);
+  // Changing the user re-populates the composer's dropdowns; wait for that to
+  // land rather than guessing, otherwise the read below can catch the old value.
+  await page.waitForFunction(
+    () => document.getElementById("f-created-by").value === "Tomas Brandt",
+    null,
+    { timeout: 10000 }
+  ).catch(() => {});
   results.workingAsChanged = (await page.locator("#currentUserSelect").inputValue()) === "Tomas Brandt";
   await page.locator('#mainNav .nav-item[data-view="tasks"]').dispatchEvent("click");
   await page.waitForTimeout(300);
@@ -114,8 +119,16 @@ export default async function run(page) {
   // --- Removing a person keeps their existing tasks ------------------------
   await page.locator('#mainNav .nav-item[data-view="people"]').dispatchEvent("click");
   await page.waitForTimeout(300);
+  // The roster re-renders on every change, so wait for the row to exist before
+  // clicking its remove button rather than assuming the list is already drawn.
+  await page.waitForSelector('.person-row:has-text("' + NAME + '")', { timeout: 10000 });
   await page.locator(".person-row", { hasText: NAME }).locator(".person-remove").dispatchEvent("click");
-  await page.waitForTimeout(1000);
+  await page.waitForFunction(
+    (name) => ![...document.querySelectorAll(".person-row")].some(
+      r => r.innerText.includes(name)),
+    NAME,
+    { timeout: 10000 }
+  ).catch(() => {});
   results.personRemoved = (await page.locator(".person-row", { hasText: NAME }).count()) === 0;
   const afterRemove = await serverBoard(page);
   results.removalSavedToServer = !afterRemove.people.some(p => p.name === NAME);
@@ -135,13 +148,24 @@ export default async function run(page) {
     document.getElementById("f-location").value = "Block S";
     document.getElementById("f-assignee").value = "";
   }, mine);
-  await page.locator("#composer button[type=submit]").dispatchEvent("click");
-  await page.waitForTimeout(1200);
+  await page.evaluate(() => document.getElementById("composer").requestSubmit());
+  // Wait for the new card to exist rather than for a fixed delay: the board
+  // re-renders on every save, and a stale read here produced a flaky failure.
+  await page.waitForSelector('.task-card:has-text("' + mine + '")', { timeout: 15000 });
   const mineCard = page.locator(".task-card", { hasText: mine });
   results.unassignedShowsUnassigned = await mineCard.evaluate(el => el.innerText.includes("Unassigned"));
   // Current user is Tomas Brandt from the step above.
   await mineCard.locator(".task-assign-me").dispatchEvent("click");
-  await page.waitForTimeout(1200);
+  // Wait for the assignment to show on the card instead of assuming it landed.
+  await page.waitForFunction(
+    (title) => {
+      const card = [...document.querySelectorAll(".task-card")]
+        .find(c => c.innerText.includes(title));
+      return !!card && card.innerText.includes("Tomas Brandt");
+    },
+    mine,
+    { timeout: 15000 }
+  ).catch(() => {});
   const reassigned = page.locator(".task-card", { hasText: mine });
   results.assignToMeWorks = await reassigned.evaluate(el => el.innerText.includes("Tomas Brandt"));
   const afterAssign = await serverBoard(page);
