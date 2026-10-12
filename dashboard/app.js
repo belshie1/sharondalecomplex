@@ -188,13 +188,17 @@
     };
   }
   // Serialise what the server expects. Recurring templates travel with the
-  // board so every device re-applies the same weekly tasks.
+  // board so every device re-applies the same weekly tasks. The roster travels
+  // with it too: without `people` here, adding someone only changed this tab,
+  // and the next live-sync event replaced the list with the server's copy and
+  // the new person vanished.
   function boardPayload() {
     return {
       tasks: tasks,
       complaints: complaints,
       shopping: shopping,
-      recurring: recurringTasks
+      recurring: recurringTasks,
+      people: people
     };
   }
 
