@@ -1268,7 +1268,236 @@
   reportModal.addEventListener("click", function (e) { if (e.target === reportModal) closeReport(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeReport(); });
 
-  document.getElementById("downloadReport").addEventListener("click", function () {
+  // Print stylesheet for the generated report. Kept as a string so the report
+  // document is completely self-contained and needs no second request.
+  const REPORT_CSS = `
+    @page { size: A4; margin: 14mm; }
+    * { box-sizing: border-box; }
+    html { background: #fff; }
+    body {
+      /* @page margins only apply when actually printing, so the same inset is
+         applied here too. Without it the saved PDF (and the print preview)
+         renders with the content hard against the paper edge. */
+      margin: 0; padding: 14mm;
+      max-width: 210mm;
+      color: #1B2A24;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 11px; line-height: 1.45;
+    }
+    @media print {
+      /* The page box already supplies the margin when printing. */
+      body { padding: 0; max-width: none; }
+    }
+    h1, h2, h3 { margin: 0; font-weight: 700; }
+    .head {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 16px; padding-bottom: 14px; border-bottom: 3px solid #17483A;
+    }
+    .head > * { min-width: 0; }
+    .brand { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; }
+    .brand .mark {
+      width: 30px; height: 30px; border-radius: 8px; flex: 0 0 auto;
+      background: linear-gradient(135deg, #17483A, #C9A565);
+    }
+    .wordmark { font-size: 15px; font-weight: 800; letter-spacing: 0.12em; color: #17483A; }
+    .brand .sub { font-size: 10px; color: #6B7A72; letter-spacing: 0.04em; }
+    .head-right { text-align: right; flex: 0 0 auto; }
+    .head-right h1 { font-size: 20px; color: #17483A; white-space: nowrap; }
+    .period { font-size: 12px; font-weight: 600; margin-top: 2px; white-space: nowrap; }
+    .generated { font-size: 9.5px; color: #6B7A72; margin-top: 2px; white-space: nowrap; }
+    .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 7px; margin: 16px 0 14px; }
+    .stat { border: 1px solid #DFE4DE; border-radius: 8px; padding: 9px 2px; text-align: center; background: #FAF8F2; }
+    .stat .num { font-size: 18px; font-weight: 700; line-height: 1.1; }
+    .stat .lbl { font-size: 7.5px; text-transform: uppercase; letter-spacing: 0.04em; color: #6B7A72; margin-top: 3px; }
+    .stat-green .num { color: #17483A; }
+    .stat-amber .num { color: #A9761B; }
+    .stat-coral .num { color: #BE4A34; }
+    .stat-muted .num { color: #6B7A72; }
+    .bar-wrap { margin-bottom: 18px; }
+    .bar-label { display: flex; justify-content: space-between; font-size: 10px; color: #6B7A72; margin-bottom: 4px; }
+    .bar-label b { color: #17483A; font-size: 11px; }
+    .bar { height: 8px; background: #E7EBE6; border-radius: 99px; overflow: hidden; }
+    .bar span { display: block; height: 100%; background: linear-gradient(90deg, #17483A, #C9A565); }
+    .bar-foot { font-size: 9.5px; color: #6B7A72; margin-top: 5px; }
+    .section-title {
+      font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em;
+      color: #17483A; margin: 18px 0 8px; padding-bottom: 5px;
+      border-bottom: 1px solid #DFE4DE;
+    }
+    .day { margin-bottom: 12px; break-inside: avoid; }
+    .day h3 {
+      font-size: 11px; color: #1B2A24; margin-bottom: 5px;
+      display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+    }
+    .day h3 > span:first-child { min-width: 0; }
+    .day-count { font-size: 9px; font-weight: 500; color: #6B7A72; text-transform: none; letter-spacing: 0; white-space: nowrap; flex: 0 0 auto; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 8px; table-layout: fixed; }
+    thead { display: table-header-group; }
+    th {
+      font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: #17483A; text-align: left; padding: 5px 6px;
+      background: #EFF3EE; border-bottom: 1px solid #DFE4DE;
+    }
+    td { padding: 5px 6px; border-bottom: 1px solid #F0F2EE; vertical-align: top; overflow-wrap: anywhere; }
+    tr { break-inside: avoid; }
+    tr.is-done .col-task { color: #6B7A72; text-decoration: line-through; }
+    .col-state { width: 18px; }
+    .col-by { width: 84px; }
+    th.col-task, td.col-task { width: 30%; }
+    .tick { color: #17483A; font-weight: 700; }
+    .chip { font-size: 8px; padding: 1px 5px; border-radius: 99px; white-space: nowrap; }
+    .chip-weekly { background: #E4EEE7; color: #17483A; font-weight: 700; }
+    .chip-moved { background: #F6EBD8; color: #A9761B; font-style: italic; }
+    .pri { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
+    .pri-low { color: #17483A; }
+    .pri-medium { color: #A9761B; }
+    .pri-high { color: #BE4A34; }
+    .status { font-size: 8.5px; font-weight: 700; padding: 2px 6px; border-radius: 99px; }
+    .status-open { background: #F7E4E0; color: #BE4A34; }
+    .status-progress { background: #F6EBD8; color: #A9761B; }
+    .status-closed { background: #E4EEE7; color: #17483A; }
+    .empty { color: #6B7A72; font-style: italic; padding: 8px 6px; }
+    .foot {
+      display: flex; justify-content: space-between;
+      margin-top: 22px; padding-top: 10px; border-top: 1px solid #DFE4DE;
+      font-size: 9px; color: #6B7A72;
+    }
+    @media print { .stat, thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  `;
+
+  // Builds a self-contained, print-ready report and opens the browser's print
+  // dialog, where "Save as PDF" produces a real PDF. Doing it this way means no
+  // PDF library to download and no dependency on a print service: the document
+  // is rendered by the browser the caretaker already has.
+  function openPrintableReport() {
+    const completed = tasks.filter(function (t) { return t.done; }).length;
+    const carried = tasks.filter(function (t) { return t.moved && !t.done; }).length;
+    const overdue = tasks.filter(function (t) { return t.day && t.day < todayDate && !t.done; }).length;
+    const unscheduled = tasks.filter(function (t) { return !t.day; }).length;
+    const openIssues = complaints.filter(function (c) { return c.status !== "closed"; }).length;
+    const resolvedIssues = complaints.filter(function (c) { return c.status === "closed"; }).length;
+    const rangeText = document.getElementById("reportRange").textContent;
+    const generated = new Date().toLocaleString([], {
+      day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
+    });
+    const completionPct = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
+
+    // Group the tasks by day so the report reads like a week, not a flat list.
+    const byDate = {};
+    tasks.forEach(function (t) {
+      const key = t.day || "unscheduled";
+      (byDate[key] = byDate[key] || []).push(t);
+    });
+    const orderedDates = Object.keys(byDate).sort(function (a, b) {
+      if (a === "unscheduled") return 1;
+      if (b === "unscheduled") return -1;
+      return a < b ? -1 : 1;
+    });
+
+    const dayBlocks = orderedDates.map(function (key) {
+      const rows = byDate[key].map(function (t) {
+        return '<tr class="' + (t.done ? "is-done" : "") + '">' +
+          '<td class="col-state"><span class="tick">' + (t.done ? "&#10003;" : "") + '</span></td>' +
+          '<td class="col-task">' + escapeHtml(t.title) +
+            (t.recurring ? ' <span class="chip chip-weekly">Weekly</span>' : "") +
+            (t.moved ? ' <span class="chip chip-moved">moved from ' + escapeHtml(dateLabel(t.moved)) + '</span>' : "") +
+          '</td>' +
+          '<td>' + escapeHtml(t.location) + '</td>' +
+          '<td><span class="pri pri-' + t.priority + '">' + t.priority + '</span></td>' +
+          '<td>' + escapeHtml(assigneeLabel(t.assignee)) + '</td>' +
+          '<td class="col-by">' + escapeHtml(t.createdBy || "-") + '</td>' +
+          '</tr>';
+      }).join("");
+      return '<section class="day">' +
+        '<h3>' + escapeHtml(dateLabel(key === "unscheduled" ? "" : key)) +
+        '<span class="day-count">' + byDate[key].length + ' task' + (byDate[key].length === 1 ? '' : 's') + '</span></h3>' +
+        '<table><thead><tr>' +
+        '<th class="col-state"></th><th>Task</th><th>Location</th><th>Priority</th><th>Assigned to</th><th class="col-by">Created by</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>' +
+        '</section>';
+    }).join("");
+
+    const complaintRows = complaints.map(function (c) {
+      const label = c.status === "open" ? "Open" : c.status === "progress" ? "In progress" : "Resolved";
+      return '<tr><td>' + escapeHtml(c.owner) + '</td><td>' + escapeHtml(c.apt) + '</td>' +
+        '<td>' + escapeHtml(c.type) + '</td><td>' + escapeHtml(c.age) + '</td>' +
+        '<td><span class="status status-' + c.status + '">' + label + '</span></td>' +
+        '<td>' + escapeHtml(c.note || "-") + '</td></tr>';
+    }).join("");
+
+    const shoppingRows = shopping.length
+      ? shopping.map(function (i) {
+          return '<tr><td>' + escapeHtml(i.label) + '</td><td>x' + i.qty + '</td><td>' +
+            escapeHtml(i.addedBy || "-") + '</td></tr>';
+        }).join("")
+      : '<tr><td colspan="3" class="empty">Nothing outstanding</td></tr>';
+
+    const html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
+      '<title>Sharondale weekly report ' + escapeHtml(rangeText) + '</title>' +
+      '<style>' + REPORT_CSS + '</style></head><body>' +
+      '<header class="head">' +
+        '<div class="brand"><span class="mark"></span><div>' +
+          '<div class="wordmark">SHARONDALE</div>' +
+          '<div class="sub">Caretaker operations</div>' +
+        '</div></div>' +
+        '<div class="head-right">' +
+          '<h1>Weekly report</h1>' +
+          '<div class="period">' + escapeHtml(rangeText) + '</div>' +
+          '<div class="generated">Generated ' + escapeHtml(generated) + '</div>' +
+        '</div>' +
+      '</header>' +
+      '<section class="stats">' +
+        statCard(completed, "Completed", "green") +
+        statCard(carried, "Carried over", "amber") +
+        statCard(overdue, "Overdue", "coral") +
+        statCard(unscheduled, "Unscheduled", "muted") +
+        statCard(openIssues, "Open issues", "coral") +
+        statCard(resolvedIssues, "Issues resolved", "green") +
+      '</section>' +
+      '<section class="bar-wrap">' +
+        '<div class="bar-label"><span>Completion this week</span><b>' + completionPct + '%</b></div>' +
+        '<div class="bar"><span style="width:' + completionPct + '%"></span></div>' +
+        '<div class="bar-foot">' + completed + ' of ' + tasks.length + ' logged tasks done' +
+          (shopping.length ? ' &middot; ' + shopping.length + ' shopping item' + (shopping.length === 1 ? '' : 's') + ' outstanding' : '') +
+        '</div>' +
+      '</section>' +
+      '<h2 class="section-title">Task detail</h2>' +
+      (dayBlocks || '<p class="empty">No tasks logged for this week.</p>') +
+      '<h2 class="section-title">Owner complaints &amp; reports</h2>' +
+      (complaints.length
+        ? '<table><thead><tr><th>Owner</th><th>Apartment</th><th>Type</th><th>Age</th><th>Status</th><th>Action taken</th></tr></thead><tbody>' + complaintRows + '</tbody></table>'
+        : '<p class="empty">No complaints recorded.</p>') +
+      '<h2 class="section-title">Shopping list outstanding</h2>' +
+      '<table><thead><tr><th>Item</th><th>Qty</th><th>Added by</th></tr></thead><tbody>' + shoppingRows + '</tbody></table>' +
+      '<footer class="foot">' +
+        '<span>Prepared by ' + escapeHtml(currentUser || "Caretaker") + '</span>' +
+        '<span>Sharondale Residence &middot; ' + escapeHtml(rangeText) + '</span>' +
+      '</footer>' +
+      '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},350);});<' + '/script>' +
+      '</body></html>';
+
+    const win = window.open("", "_blank");
+    if (!win) {
+      toast("Allow pop-ups to open the report");
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    logActivity("Opened the weekly report for printing");
+    toast("Report ready - choose Save as PDF");
+  }
+
+  function statCard(value, label, tone) {
+    return '<div class="stat stat-' + tone + '"><div class="num">' + value + '</div>' +
+      '<div class="lbl">' + escapeHtml(label) + '</div></div>';
+  }
+
+  // PDF is the primary action; the plain-text export stays available for anyone
+  // who wants to paste the figures into something else.
+  document.getElementById("downloadReport").addEventListener("click", openPrintableReport);
+
+  document.getElementById("downloadReportText").addEventListener("click", function () {
     const completed = tasks.filter(function (t) { return t.done; }).length;
     const carried = tasks.filter(function (t) { return t.moved && !t.done; }).length;
     const overdue = tasks.filter(function (t) { return t.day && t.day < todayDate && !t.done; }).length;
@@ -1301,7 +1530,7 @@
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-    toast("Weekly report downloaded");
+    toast("Plain-text report downloaded");
   });
 
   document.getElementById("bellBtn").addEventListener("click", function () {

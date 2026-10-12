@@ -29,7 +29,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - Review complaints and owner reports
 - Create a task directly from a complaint
 - Close complaints with a recorded action
-- Review and download a weekly report
+- Review the weekly report and save it as a **PDF** (print-ready, with a plain-text export alongside)
 - Keep a shopping list of supplies: add items with a quantity, and ticking one off removes it from the list
 
 ## Project files
@@ -46,6 +46,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - `tests/qa-backlog.mjs` - browser QA script covering the unscheduled list, drag-to-schedule, and persistence
 - `tests/qa-shopping.mjs` - browser QA script covering the shopping list, tick-to-remove, and persistence
 - `tests/qa-people.mjs` - browser QA script covering the People roster and the Created by field
+- `tests/qa-report.mjs` - browser QA script covering the printable PDF report
 - `tests/run-all.mjs` - runs every QA suite against a throwaway backend (`npm test`)
 - `tests/qa-backend.mjs` - proves data is stored server-side and visible from a second device
 - `tests/helpers.mjs` - shared QA helpers, including a board reset
@@ -159,6 +160,10 @@ node <browser-automation-skill-dir>/browser.mjs http://localhost:3000/ --script 
 They share one server, so each suite resets the board through the API before
 asserting, and identifies rows by unique markers rather than position.
 
-The weekly report downloads as a plain-text summary built from the current board
-state.
+The weekly report opens a print-ready A4 document in a new tab and triggers the
+browser's print dialog, where **Save as PDF** produces the file. Doing it this
+way avoids bundling a PDF library: the document is rendered by the browser the
+caretaker already has. It is styled for print, grouped by day, and includes the
+stats, progress, task detail, complaints and outstanding shopping. A plain-text
+export sits beside it for anyone who wants the raw figures.
 
