@@ -52,9 +52,15 @@ export default async function run(page) {
   await page.locator("#e-day").selectOption("sat");
   await page.locator("#editForm button[type=submit]").click();
   await page.waitForTimeout(250);
-  results.movedToSaturday = await page
-    .locator('.day-col[data-day="sat"] .task-card[data-id="' + taskId + '"]')
-    .count() === 1;
+  // Columns are keyed by real calendar date, so resolve "sat" to that date
+  // via the board header, then check the task sits in the matching column.
+  results.movedToSaturday = await page.evaluate((id) => {
+    const heads = [...document.querySelectorAll("#boardHeader .day-head")];
+    const cols = [...document.querySelectorAll("#boardBody .day-col")];
+    const satIndex = heads.findIndex(h => h.querySelector(".name").innerText.trim().toLowerCase() === "sat");
+    if (satIndex === -1) return false;
+    return !!cols[satIndex].querySelector('.task-card[data-id="' + id + '"]');
+  }, taskId);
 
   // --- Removing the task still requires the password ------------------------
   await page.locator('.task-card[data-id="' + taskId + '"] .task-delete').click();

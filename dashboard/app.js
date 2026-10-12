@@ -26,6 +26,36 @@
   document.getElementById("weekRange").textContent = rangeText;
   document.getElementById("reportRange").textContent = weekDates[0].getDate() + " - " + weekDates[6].getDate() + " " + MONTHS[weekDates[6].getMonth()];
 
+  // Stable calendar date (YYYY-MM-DD) for each weekday of the current week. Tasks
+  // are stored against the real date, so a task scheduled for today stays on
+  // today even after the week rolls over and the board re-labels its columns.
+  const todayDate = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+  const UNASSIGNED_DATE = "";
+  const dayDate = {};
+  DAY_KEYS.forEach(function (k, i) {
+    const d = weekDates[i];
+    dayDate[k] = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  });
+  function dayKeyFromDate(dateStr) {
+    for (let i = 0; i < DAY_KEYS.length; i++) {
+      if (dayDate[DAY_KEYS[i]] === dateStr) return DAY_KEYS[i];
+    }
+    return null;
+  }
+  // Human word for a stored date: a day of this week, a friendly relative label
+  // for anything outside it, or "Unscheduled" when there is no date at all.
+  function dateLabel(dateStr) {
+    if (!dateStr) return "Unscheduled";
+    const k = dayKeyFromDate(dateStr);
+    if (k) return DAY_NAMES[k];
+    const parts = dateStr.split("-");
+    const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    const diff = Math.round((d - now) / 86400000);
+    if (diff === 0) return "Today";
+    if (Math.abs(diff) <= 6) return (diff < 0 ? "Last " : "Next ") + WEEKDAY_FULL[d.getDay()];
+    return d.getDate() + " " + MONTHS[d.getMonth()];
+  }
+
   /* ---------------- Data model ---------------- */
   let uid = 100;
   const DELETE_PASSWORD = "5879";
@@ -39,16 +69,18 @@
   }
 
   const tasks = [
-    { id: uid++, title: "Pool filter back-flush", location: "Clubhouse - Pool deck", day: "mon", priority: "medium", assignee: "Elena Ruiz", done: true, photo: null, moved: null },
-    { id: uid++, title: "Replace hallway bulb", location: "Block A - Floor 3", day: "mon", priority: "low", assignee: "Marco Conti", done: true, photo: null, moved: null },
-    { id: uid++, title: "Elevator safety check", location: "Block B - Lobby", day: "tue", priority: "high", assignee: "Tomas Brandt", done: false, photo: null, moved: null },
-    { id: uid++, title: "Irrigation timer reset", location: "Garden - Zone 2", day: "tue", priority: "low", assignee: UNASSIGNED, done: false, photo: null, moved: null },
-    { id: uid++, title: "Fix leaking tap - unit 14", location: "Block C - Unit 14", day: todayKey, priority: "high", assignee: "Tomas Brandt", done: false, photo: "gradient", moved: null },
-    { id: uid++, title: "Gate motor lubrication", location: "Main entrance", day: todayKey, priority: "medium", assignee: "Priya Nair", done: false, photo: null, moved: null },
-    { id: uid++, title: "Litter sweep - car park", location: "Basement P1", day: todayKey, priority: "low", assignee: "Elena Ruiz", done: true, photo: null, moved: null },
-    { id: uid++, title: "Replace fire extinguisher tag", location: "Block A - Stairwell", day: "thu", priority: "medium", assignee: "Marco Conti", done: false, photo: null, moved: null },
-    { id: uid++, title: "Clean gutters - east wing", location: "Block B - Roof", day: "fri", priority: "medium", assignee: "Priya Nair", done: false, photo: null, moved: null },
-    { id: uid++, title: "Repaint parking bay lines", location: "Visitor car park", day: "sat", priority: "low", assignee: UNASSIGNED, done: false, photo: null, moved: null },
+    { id: uid++, title: "Pool filter back-flush", location: "Clubhouse - Pool deck", day: dayDate.mon, priority: "medium", assignee: "Elena Ruiz", done: true, photo: null, moved: null },
+    { id: uid++, title: "Replace hallway bulb", location: "Block A - Floor 3", day: dayDate.mon, priority: "low", assignee: "Marco Conti", done: true, photo: null, moved: null },
+    { id: uid++, title: "Elevator safety check", location: "Block B - Lobby", day: dayDate.tue, priority: "high", assignee: "Tomas Brandt", done: false, photo: null, moved: null },
+    { id: uid++, title: "Irrigation timer reset", location: "Garden - Zone 2", day: dayDate.tue, priority: "low", assignee: UNASSIGNED, done: false, photo: null, moved: null },
+    { id: uid++, title: "Fix leaking tap - unit 14", location: "Block C - Unit 14", day: todayDate, priority: "high", assignee: "Tomas Brandt", done: false, photo: "gradient", moved: null },
+    { id: uid++, title: "Gate motor lubrication", location: "Main entrance", day: todayDate, priority: "medium", assignee: "Priya Nair", done: false, photo: null, moved: null },
+    { id: uid++, title: "Litter sweep - car park", location: "Basement P1", day: todayDate, priority: "low", assignee: "Elena Ruiz", done: true, photo: null, moved: null },
+    { id: uid++, title: "Replace fire extinguisher tag", location: "Block A - Stairwell", day: dayDate.thu, priority: "medium", assignee: "Marco Conti", done: false, photo: null, moved: null },
+    { id: uid++, title: "Clean gutters - east wing", location: "Block B - Roof", day: dayDate.fri, priority: "medium", assignee: "Priya Nair", done: false, photo: null, moved: null },
+    { id: uid++, title: "Repaint parking bay lines", location: "Visitor car park", day: UNASSIGNED_DATE, priority: "low", assignee: UNASSIGNED, done: false, photo: null, moved: null },
+    { id: uid++, title: "Order replacement bin lids", location: "Block C - Bin store", day: UNASSIGNED_DATE, priority: "medium", assignee: UNASSIGNED, done: false, photo: null, moved: null },
+    { id: uid++, title: "Trim hedge along boundary wall", location: "Garden - North edge", day: UNASSIGNED_DATE, priority: "low", assignee: "Elena Ruiz", done: false, photo: null, moved: null },
   ];
 
   const complaints = [
@@ -73,8 +105,63 @@
     stack.appendChild(el);
     setTimeout(function () { el.classList.add("leaving"); setTimeout(function () { el.remove(); }, 260); }, 2800);
   }
+  const STORAGE_KEY = "sharondaleBoardData";
   const RECURRING_TASKS_KEY = "sharondaleRecurringTasks";
   let recurringTasks = [];
+
+  // ---- Durable store ----------------------------------------------------
+  // The whole board is kept in localStorage so a task is never lost on
+  // reload. Nothing here is destructive: a parse failure falls back to the
+  // seed data rather than wiping what the caretaker already has.
+  function isValidTask(t) {
+    return t && typeof t.id === "number" &&
+      typeof t.title === "string" && typeof t.location === "string" &&
+      (t.day === UNASSIGNED_DATE || typeof t.day === "string") &&
+      ["low", "medium", "high"].indexOf(t.priority) !== -1 &&
+      typeof t.done === "boolean";
+  }
+  function isValidComplaint(c) {
+    return c && typeof c.id === "number" && typeof c.owner === "string" &&
+      ["open", "progress", "closed"].indexOf(c.status) !== -1;
+  }
+  function normalizeTask(t) {
+    return {
+      id: t.id, title: t.title, location: t.location,
+      day: typeof t.day === "string" ? t.day : UNASSIGNED_DATE,
+      priority: t.priority,
+      assignee: typeof t.assignee === "string" ? t.assignee : UNASSIGNED,
+      done: !!t.done, photo: t.photo || null, moved: t.moved || null,
+      recurring: !!t.recurring, recurringId: t.recurringId || null
+    };
+  }
+  function saveBoardData() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, tasks: tasks, complaints: complaints }));
+      setSaveState("saved");
+      return true;
+    } catch (error) {
+      setSaveState("error");
+      toast("Could not save your board: " + error.message);
+      return false;
+    }
+  }
+  function loadBoardData() {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved === null) return null;
+      const parsed = JSON.parse(saved);
+      if (!parsed || !Array.isArray(parsed.tasks) || !Array.isArray(parsed.complaints)) {
+        throw new Error("Saved board has an unexpected shape.");
+      }
+      return {
+        tasks: parsed.tasks.filter(isValidTask).map(normalizeTask),
+        complaints: parsed.complaints.filter(isValidComplaint)
+      };
+    } catch (error) {
+      toast("Could not read your saved board: " + error.message);
+      return null;
+    }
+  }
   function loadRecurringTasks() {
     try {
       const saved = localStorage.getItem(RECURRING_TASKS_KEY);
@@ -120,11 +207,33 @@
       recurringId: task.id
     });
   });
+  // Restore the saved board over the seed data. Recurring templates are
+  // re-applied above on every load, so they are excluded from the snapshot.
+  const savedBoard = loadBoardData();
+  if (savedBoard) {
+    tasks.length = 0;
+    savedBoard.tasks.forEach(function (t) { tasks.push(t); });
+    complaints.length = 0;
+    savedBoard.complaints.forEach(function (c) { complaints.push(c); });
+  }
   function timeNow() {
     const d = new Date();
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
   let activityLog = [];
+  let saveState = "saving";
+  function setSaveState(state) {
+    saveState = state;
+    const el = document.getElementById("saveState");
+    if (!el) return;
+    el.classList.toggle("saving", state === "saving");
+    el.classList.toggle("error", state === "error");
+    el.textContent = state === "error" ? "Could not save" : "Saved";
+  }
+  // Persist on every meaningful interaction, and once more if the tab is
+  // closed mid-change so nothing is lost.
+  function markSaving() { setSaveState("saving"); saveBoardData(); }
+  window.addEventListener("beforeunload", function () { saveBoardData(); });
   function logActivity(text) {
     activityLog.unshift({ text: text, time: timeNow() });
     activityLog = activityLog.slice(0, 12);
@@ -142,7 +251,7 @@
     const el = document.getElementById("boardHeader");
     el.innerHTML = DAY_KEYS.map(function (k, i) {
       const d = weekDates[i];
-      const count = tasks.filter(function (t) { return t.day === k; }).length;
+      const count = tasks.filter(function (t) { return t.day === dayDate[k]; }).length;
       return '<div class="day-head ' + (k === todayKey ? 'today' : '') + '">' +
         '<span class="name">' + DAY_NAMES[k] + '</span>' +
         '<span class="marker"></span>' +
@@ -179,16 +288,44 @@
   function renderBoardBody() {
     const el = document.getElementById("boardBody");
     el.innerHTML = DAY_KEYS.map(function (k) {
-      const dayTasks = tasks.filter(function (t) { return t.day === k; });
-      return '<div class="day-col ' + (dayTasks.length === 0 ? 'is-empty' : '') + '" data-day="' + k + '">' + dayTasks.map(taskCardHtml).join("") + '</div>';
+      const dayTasks = tasks.filter(function (t) { return t.day === dayDate[k]; });
+      return '<div class="day-col ' + (dayTasks.length === 0 ? 'is-empty' : '') + '" data-day="' + dayDate[k] + '">' + dayTasks.map(taskCardHtml).join("") + '</div>';
     }).join("");
     attachCardEvents();
     attachColumnEvents();
   }
 
+  /* ---------------- Render: unscheduled backlog ---------------- */
+  function renderBacklog() {
+    const list = document.getElementById("backlogList");
+    if (!list) return;
+    const backlog = tasks.filter(function (t) { return !t.day; }).sort(function (a, b) {
+      const rank = { high: 0, medium: 1, low: 2 };
+      return rank[a.priority] - rank[b.priority];
+    });
+    document.getElementById("backlogCount").textContent = backlog.length;
+    list.classList.toggle("drag-over", false);
+    if (backlog.length === 0) {
+      list.innerHTML = '<p class="backlog-empty">Everything is scheduled. Add a task without a date to park it here.</p>';
+      return;
+    }
+    list.innerHTML = backlog.map(function (t) {
+      return '<div class="backlog-item priority-' + t.priority + '" draggable="true" data-id="' + t.id + '" tabindex="0" ' +
+        'role="button" aria-label="' + escapeHtml(t.title) + ', unscheduled. Drag onto a day to schedule it.">' +
+        '<span class="drag-handle"><svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>' +
+        '<span class="status-dot"></span>' +
+        '<div class="b-body">' +
+        '<div class="b-title">' + escapeHtml(t.title) + '</div>' +
+        '<div class="b-meta">' + escapeHtml(t.location) + ' · ' + escapeHtml(assigneeLabel(t.assignee)) + '</div>' +
+        '</div>' +
+        '</div>';
+    }).join("");
+    attachBacklogEvents();
+  }
+
   /* ---------------- KPIs & focus panel ---------------- */
   function renderKpis() {
-    const todays = tasks.filter(function (t) { return t.day === todayKey; });
+    const todays = tasks.filter(function (t) { return t.day === todayDate; });
     const todayDone = todays.filter(function (t) { return t.done; }).length;
     const weekDone = tasks.filter(function (t) { return t.done; }).length;
     const openIssues = complaints.filter(function (c) { return c.status !== "closed"; }).length;
@@ -196,7 +333,7 @@
     document.getElementById("kpiToday").textContent = todays.length;
     document.getElementById("kpiTodayFoot").textContent = todayDone + " completed so far";
     document.getElementById("kpiDone").textContent = weekDone;
-    document.getElementById("kpiDoneFoot").textContent = "of " + tasks.length + " this week's tasks";
+    document.getElementById("kpiDoneFoot").textContent = "of " + tasks.length + " logged tasks";
     document.getElementById("kpiIssues").textContent = openIssues;
     document.getElementById("navComplaintCount").textContent = openIssues;
     document.getElementById("bellBadge").textContent = openIssues;
@@ -217,6 +354,7 @@
   function renderAll() {
     renderBoardHeader();
     renderBoardBody();
+    renderBacklog();
     renderKpis();
     updateCalendarScrollState();
   }
@@ -257,6 +395,7 @@
         if (!t) return;
         t.done = !t.done;
         logActivity((t.done ? "Completed" : "Reopened") + " \"" + t.title + "\"");
+        markSaving();
         renderAll();
       });
       card.addEventListener("keydown", function (e) {
@@ -275,6 +414,33 @@
         e.stopPropagation();
         const task = tasks.find(function (x) { return x.id === Number(card.dataset.id); });
         if (task) requestTaskRemoval(task);
+      });
+    });
+  }
+
+  // Unscheduled tasks live in the sidebar and are dragged onto a day column.
+  // They keep the same id, so the drag-and-drop wiring is shared with the board.
+  function attachBacklogEvents() {
+    document.querySelectorAll(".backlog-item").forEach(function (item) {
+      item.addEventListener("dragstart", function (e) {
+        dragId = Number(item.dataset.id);
+        dragMoved = false;
+        item.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+      item.addEventListener("dragend", function () {
+        item.classList.remove("dragging");
+      });
+      // Keyboard/touch fallback: focus an item, press Enter, then a day.
+      item.addEventListener("click", function () {
+        const t = tasks.find(function (x) { return x.id === Number(item.dataset.id); });
+        if (t) openEditModal(t);
+      });
+      item.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          item.click();
+        }
       });
     });
   }
@@ -316,6 +482,7 @@
     tasks.splice(taskIndex, 1);
     logActivity("Removed \"" + task.title + "\"");
     toast(task.recurring ? "Weekly task removed" : "Task removed from this week");
+    markSaving();
     renderAll();
   }
 
@@ -345,9 +512,13 @@
   const editAssigneeSelect = document.getElementById("e-assignee");
   let pendingEditTaskId = null;
 
-  editDaySelect.innerHTML = DAY_KEYS.map(function (k, i) {
-    return '<option value="' + k + '">' + DAY_NAMES[k] + ' ' + weekDates[i].getDate() + '</option>';
-  }).join("");
+  // The edit modal works in real dates: the select carries a day key, which is
+  // resolved to that day's date, and an unscheduled task opens on "Unscheduled".
+  editDaySelect.innerHTML =
+    '<option value="">Unscheduled</option>' +
+    DAY_KEYS.map(function (k, i) {
+      return '<option value="' + k + '">' + DAY_NAMES[k] + ' ' + weekDates[i].getDate() + '</option>';
+    }).join("");
 
   function fillStaffSelect(select) {
     select.innerHTML = '<option value="">Unassigned</option>' + STAFF.map(function (name) {
@@ -363,7 +534,7 @@
     fillStaffSelect(editAssigneeSelect);
     document.getElementById("e-title").value = task.title;
     document.getElementById("e-location").value = task.location;
-    editDaySelect.value = task.day;
+    editDaySelect.value = dayKeyFromDate(task.day) || "";
     document.getElementById("e-priority").value = task.priority;
     editAssigneeSelect.value = STAFF.indexOf(task.assignee) === -1 ? "" : task.assignee;
     editModal.classList.add("open");
@@ -384,29 +555,33 @@
     const title = document.getElementById("e-title").value.trim();
     const location = document.getElementById("e-location").value.trim();
     if (!title || !location) return;
-    const day = editDaySelect.value;
+    const dayKey = editDaySelect.value;
+    const newDate = dayKey ? dayDate[dayKey] : UNASSIGNED_DATE;
     const priority = document.getElementById("e-priority").value;
     const assignee = editAssigneeSelect.value;
 
     const changes = [];
     if (task.title !== title) changes.push('title to "' + title + '"');
     if (task.location !== location) changes.push("location to " + location);
-    const fromDay = task.day;
-    if (day !== task.day) changes.push("day from " + DAY_NAMES[task.day] + " to " + DAY_NAMES[day]);
+    const wasDate = task.day;
+    if (newDate !== wasDate) changes.push("date from " + dateLabel(wasDate) + " to " + dateLabel(newDate));
     if (priority !== task.priority) changes.push("priority to " + priority);
     const assigneeChanged = (task.assignee || "") !== assignee;
     if (assigneeChanged) changes.push("assignee to " + assigneeLabel(assignee));
 
-    if (day !== task.day) task.moved = fromDay;
+    // "moved" only makes sense between two real dates; clearing to Unscheduled
+    // is a different action and should not claim the task was carried over.
+    if (newDate !== wasDate) task.moved = wasDate || null;
     task.title = title;
     task.location = location;
-    task.day = day;
+    task.day = newDate;
     task.priority = priority;
     task.assignee = assignee;
 
     logActivity(changes.length ? "Edited \"" + task.title + "\" - " + changes.join(", ") : "Saved \"" + task.title + "\" with no changes");
     toast(assigneeChanged && changes.length === 1 ? "Assigned to " + assigneeLabel(assignee) : "Task updated");
     closeEditModal();
+    markSaving();
     renderAll();
   });
 
@@ -431,12 +606,15 @@
         col.classList.remove("drag-over");
         dragMoved = true;
         const t = tasks.find(function (x) { return x.id === dragId; });
-        const newDay = col.dataset.day;
-        if (t && t.day !== newDay) {
-          const fromDay = t.day;
-          t.moved = fromDay;
-          t.day = newDay;
-          logActivity("Moved \"" + t.title + "\" from " + DAY_NAMES[fromDay] + " to " + DAY_NAMES[newDay]);
+        const newDate = col.dataset.day;
+        if (t && t.day !== newDate) {
+          const wasDate = t.day;
+          t.moved = wasDate || null;
+          t.day = newDate;
+          logActivity(wasDate
+            ? "Moved \"" + t.title + "\" from " + dateLabel(wasDate) + " to " + dateLabel(newDate)
+            : "Scheduled \"" + t.title + "\" for " + dateLabel(newDate));
+          markSaving();
           renderAll();
         }
         setTimeout(function () { dragMoved = false; }, 50);
@@ -446,9 +624,12 @@
 
   /* ---------------- Composer ---------------- */
   const daySelect = document.getElementById("f-day");
-  daySelect.innerHTML = DAY_KEYS.map(function (k, i) {
-    return '<option value="' + k + '" ' + (k === todayKey ? 'selected' : '') + '>' + DAY_NAMES[k] + ' ' + weekDates[i].getDate() + '</option>';
-  }).join("");
+  daySelect.innerHTML =
+    '<option value="" selected>No date - unscheduled</option>' +
+    DAY_KEYS.map(function (k, i) {
+      return '<option value="' + k + '" ' + (k === todayKey ? 'selected' : '') + '>' + DAY_NAMES[k] + ' ' + weekDates[i].getDate() + '</option>';
+    }).join("");
+  daySelect.value = todayKey;
   const composerAssignee = document.getElementById("f-assignee");
 
   const composer = document.getElementById("composer");
@@ -495,16 +676,19 @@
     const title = document.getElementById("f-title").value.trim();
     const location = document.getElementById("f-location").value.trim();
     if (!title || !location) return;
-    const day = document.getElementById("f-day").value;
+    const dayKey = document.getElementById("f-day").value;
+    const newDate = dayKey ? dayDate[dayKey] : UNASSIGNED_DATE;
     const priority = document.getElementById("f-priority").value;
     const assignee = composerAssignee.value;
-    const isRecurring = document.getElementById("f-recurring").checked;
+    // A weekly repeat needs a weekday to repeat on, so an unscheduled task can
+    // never be recurring.
+    const isRecurring = document.getElementById("f-recurring").checked && !!dayKey;
     if (isRecurring) {
       const recurringTask = {
         id: "weekly-" + Date.now().toString(36) + "-" + uid,
         title: title,
         location: location,
-        day: day,
+        day: dayKey,
         priority: priority,
         assignee: assignee
       };
@@ -514,7 +698,7 @@
       id: uid++,
       title: title,
       location: location,
-      day: day,
+      day: newDate,
       priority: priority,
       assignee: assignee,
       done: false,
@@ -523,8 +707,11 @@
       recurring: isRecurring,
       recurringId: isRecurring ? recurringTasks[recurringTasks.length - 1].id : null
     });
-    logActivity("Added \"" + title + "\" to " + DAY_NAMES[day] + (assignee ? " - assigned to " + assignee : ""));
-    toast(isRecurring ? "Weekly task added and saved" : "Task added to the board");
+    logActivity(newDate
+      ? "Added \"" + title + "\" to " + dateLabel(newDate) + (assignee ? " - assigned to " + assignee : "")
+      : "Added \"" + title + "\" to Unscheduled" + (assignee ? " - assigned to " + assignee : ""));
+    toast(isRecurring ? "Weekly task added and saved"
+      : newDate ? "Task added to the board" : "Task parked in Unscheduled");
     document.getElementById("f-title").value = "";
     document.getElementById("f-location").value = "";
     document.getElementById("f-priority").value = "medium";
@@ -532,6 +719,7 @@
     document.getElementById("f-recurring").checked = false;
     daySelect.value = todayKey;
     resetPhotoField();
+    markSaving();
     renderAll();
   });
 
@@ -542,6 +730,31 @@
     composer.classList.remove("collapsed");
     composer.scrollIntoView({ behavior: "smooth", block: "center" });
     document.getElementById("f-title").focus();
+  });
+
+  // Drop target for un-scheduling: drag a board task here to take it off the
+  // calendar without deleting it.
+  const backlogList = document.getElementById("backlogList");
+  backlogList.addEventListener("dragover", function (e) {
+    e.preventDefault();
+    backlogList.classList.add("drag-over");
+  });
+  backlogList.addEventListener("dragleave", function () { backlogList.classList.remove("drag-over"); });
+  backlogList.addEventListener("drop", function (e) {
+    e.preventDefault();
+    backlogList.classList.remove("drag-over");
+    dragMoved = true;
+    const t = tasks.find(function (x) { return x.id === dragId; });
+    if (t && t.day) {
+      const wasDate = t.day;
+      t.day = UNASSIGNED_DATE;
+      t.moved = null;
+      logActivity("Un-scheduled \"" + t.title + "\" from " + dateLabel(wasDate));
+      toast("Task moved to Unscheduled");
+      markSaving();
+      renderAll();
+    }
+    setTimeout(function () { dragMoved = false; }, 50);
   });
 
   /* ---------------- Nav / tab switching ---------------- */
@@ -583,13 +796,15 @@
           id: uid++,
           title: "Resolve: " + c.type,
           location: c.apt,
-          day: todayKey,
+          day: todayDate,
           priority: "high",
+          assignee: UNASSIGNED,
           done: false, photo: null, moved: null
         });
         c.status = "progress";
         logActivity("Created task from " + c.owner + "'s report (" + c.type + ")");
         toast("Task created for " + c.owner + "'s issue");
+        markSaving();
         renderComplaints();
         renderAll();
       });
@@ -615,6 +830,7 @@
         c.note = text;
         logActivity("Closed " + c.owner + "'s complaint - \"" + text.slice(0, 40) + (text.length > 40 ? '...' : '') + "\"");
         toast("Complaint closed with recorded action");
+        markSaving();
         renderComplaints();
         renderAll();
       });
@@ -626,8 +842,8 @@
   function openReport() {
     const completed = tasks.filter(function (t) { return t.done; }).length;
     const carried = tasks.filter(function (t) { return t.moved && !t.done; }).length;
-    const overdueDays = DAY_KEYS.slice(0, DAY_KEYS.indexOf(todayKey));
-    const overdue = tasks.filter(function (t) { return overdueDays.indexOf(t.day) !== -1 && !t.done; }).length;
+    // "Overdue" is any still-open task whose real date has already passed.
+    const overdue = tasks.filter(function (t) { return t.day && t.day < todayDate && !t.done; }).length;
     document.getElementById("rCompleted").textContent = completed;
     document.getElementById("rCarried").textContent = carried;
     document.getElementById("rOverdue").textContent = overdue;
@@ -648,8 +864,8 @@
   document.getElementById("downloadReport").addEventListener("click", function () {
     const completed = tasks.filter(function (t) { return t.done; }).length;
     const carried = tasks.filter(function (t) { return t.moved && !t.done; }).length;
-    const overdueDays = DAY_KEYS.slice(0, DAY_KEYS.indexOf(todayKey));
-    const overdue = tasks.filter(function (t) { return overdueDays.indexOf(t.day) !== -1 && !t.done; }).length;
+    const overdue = tasks.filter(function (t) { return t.day && t.day < todayDate && !t.done; }).length;
+    const unscheduled = tasks.filter(function (t) { return !t.day; }).length;
     const lines = [
       "SHARONDALE - WEEKLY OPERATIONS REPORT",
       document.getElementById("reportRange").textContent,
@@ -657,13 +873,14 @@
       "Completed tasks: " + completed,
       "Carried over: " + carried,
       "Overdue: " + overdue,
+      "Unscheduled: " + unscheduled,
       "Total tasks logged: " + tasks.length,
       "Owner issues resolved: " + complaints.filter(function (c) { return c.status === 'closed'; }).length,
       "Open issues remaining: " + complaints.filter(function (c) { return c.status !== 'closed'; }).length,
       "",
       "Task detail:"
     ].concat(tasks.map(function (t) {
-      return " - [" + (t.done ? "x" : " ") + "] " + DAY_NAMES[t.day] + ": " + t.title + " (" + t.location + ", " + t.priority + " priority, " + assigneeLabel(t.assignee) + ")" + (t.moved ? " - moved from " + DAY_NAMES[t.moved] : "");
+      return " - [" + (t.done ? "x" : " ") + "] " + dateLabel(t.day) + ": " + t.title + " (" + t.location + ", " + t.priority + " priority, " + assigneeLabel(t.assignee) + ")" + (t.moved ? " - moved from " + dateLabel(t.moved) : "");
     }));
     const blob = new Blob([lines.join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
@@ -686,6 +903,8 @@
   /* ---------------- Init ---------------- */
   fillStaffSelect(composerAssignee);
   logActivity("Shift started - board synced");
+  setSaveState("saved");
   renderAll();
   renderComplaints();
+  saveBoardData();
 })();

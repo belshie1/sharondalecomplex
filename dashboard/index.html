@@ -51,6 +51,7 @@
     <div class="topbar-left">
       <span class="eyebrow" id="todayLabel">Friday, 10 October</span>
       <h2 class="title">Hi Sharondale</h2>
+      <span class="save-state" id="saveState" title="Your board is saved in this browser">Saved</span>
     </div>
     <div class="topbar-right">
       <button class="bell-btn" id="bellBtn" aria-label="Notifications" title="Unresolved issues">
@@ -141,6 +142,7 @@
           <div class="field">
             <label for="f-day">Due date</label>
             <select id="f-day"></select>
+            <span class="photo-hint">Leave as "No date" to park it in Unscheduled.</span>
           </div>
           <div class="field">
             <label for="f-priority">Priority</label>
@@ -185,6 +187,15 @@
 
       <!-- Calendar board + focus panel -->
       <div class="content-grid">
+        <aside class="backlog-card" id="backlogCard">
+          <div class="backlog-head">
+            <h3>Unscheduled</h3>
+            <span class="backlog-count" id="backlogCount">0</span>
+          </div>
+          <p class="backlog-hint">Drag a task onto a day to schedule it</p>
+          <div class="backlog-list" id="backlogList"></div>
+        </aside>
+
         <div class="board-card">
           <div class="board-scroll" id="calendarScroll" role="region" aria-label="Weekly calendar, scroll horizontally to view all seven days" tabindex="0">
             <div class="board-header" id="boardHeader"></div>

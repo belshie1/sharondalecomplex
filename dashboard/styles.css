@@ -288,10 +288,96 @@
   /* ---- Content grid ---- */
   .content-grid{
     display:grid;
-    grid-template-columns:1fr 320px;
-    gap:20px;
+    grid-template-columns:212px minmax(0,1fr);
+    gap:16px;
     align-items:start;
   }
+  /* The backlog rail sits beside the calendar; the focus panel spans the full
+     content width beneath both, so it is never stranded in the narrow rail. */
+  .backlog-card{grid-column:1; grid-row:1;}
+  .board-card{grid-column:2; grid-row:1;}
+  .focus-card{grid-column:1 / -1; grid-row:2;}
+
+  /* ---- Unscheduled backlog ---- */
+  .backlog-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-sm);
+    padding:16px 14px;
+    position:sticky;
+    top:98px;
+  }
+  .backlog-head{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:8px; margin-bottom:4px;
+  }
+  .backlog-head h3{font-size:15px;}
+  .backlog-count{
+    font-size:11px; font-weight:700; color:var(--forest);
+    background:var(--forest-pale); padding:2px 8px; border-radius:10px;
+  }
+  .backlog-hint{font-size:11px; color:var(--muted); margin-bottom:12px; line-height:1.35;}
+  .backlog-list{
+    display:flex; flex-direction:column; gap:8px;
+    min-height:88px; padding:6px; border-radius:10px;
+    border:1px dashed transparent; transition:background 0.15s ease, border-color 0.15s ease;
+  }
+  .backlog-list.drag-over{border-color:var(--forest); background:var(--forest-pale);}
+  .backlog-empty{
+    font-size:11.5px; color:#9AA69D; text-align:center;
+    padding:18px 6px; line-height:1.4;
+  }
+  .backlog-item{
+    position:relative;
+    display:flex; align-items:flex-start; gap:7px;
+    background:var(--canvas);
+    border:1px solid var(--line);
+    border-left:3px solid var(--muted);
+    border-radius:9px;
+    padding:9px 10px;
+    box-shadow:var(--shadow-sm);
+    cursor:grab;
+    animation:fadeUp 0.18s ease both;
+  }
+  .backlog-item:hover{box-shadow:var(--shadow-md); transform:translateY(-1px);}
+  .backlog-item.dragging{opacity:0.45;}
+  .backlog-item.priority-high{border-left-color:var(--coral);}
+  .backlog-item.priority-medium{border-left-color:var(--amber);}
+  .backlog-item.priority-low{border-left-color:var(--forest);}
+  .backlog-item .status-dot{
+    width:8px; height:8px; border-radius:50%; margin-top:5px; flex:0 0 auto;
+    background:var(--muted);
+  }
+  .backlog-item.priority-high .status-dot{background:var(--coral);}
+  .backlog-item.priority-medium .status-dot{background:var(--amber);}
+  .backlog-item.priority-low .status-dot{background:var(--forest);}
+  .backlog-item .b-body{min-width:0;
+    overflow:hidden;}
+  .backlog-item .b-title{font-size:12.5px; font-weight:600; line-height:1.3;}
+  .backlog-item .b-meta{
+    font-size:10.5px; color:var(--muted); margin-top:2px; line-height:1.35;
+    overflow-wrap:anywhere;
+  }
+  .backlog-item .drag-handle{
+    position:absolute; top:6px; right:6px; color:#C7CDC3; display:flex;
+  }
+  .backlog-item .drag-handle .icon{width:12px;height:12px;}
+
+  /* ---- Cloud-save status ---- */
+  .save-state{
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:11px; font-weight:600; color:var(--forest);
+    background:var(--forest-pale); border:1px solid rgba(23,72,58,0.16);
+    padding:2px 9px; border-radius:20px; margin-top:6px;
+  }
+  .save-state::before{
+    content:""; width:6px; height:6px; border-radius:50%; background:var(--forest);
+  }
+  .save-state.saving{color:var(--amber-dark); background:var(--amber-pale); border-color:rgba(180,130,40,0.2);}
+  .save-state.saving::before{background:var(--amber);}
+  .save-state.error{color:var(--coral); background:#F7E7E3; border-color:rgba(190,80,60,0.24);}
+  .save-state.error::before{background:var(--coral);}
 
   /* ---- Quick add composer ---- */
   .composer{
@@ -704,11 +790,15 @@
 
   /* ===== Responsive ===== */
   @media (max-width: 1180px){
-    .content-grid{grid-template-columns:1fr;}
-    .focus-card{position:static;}
+    .content-grid{grid-template-columns:200px minmax(0,1fr);}
+    .board-card{grid-column:2; grid-row:1;}
+    .focus-card{grid-column:1 / -1; grid-row:2; position:static;}
     .composer-body{grid-template-columns:1fr 1fr;}
   }
   @media (max-width: 920px){
+    .content-grid{grid-template-columns:1fr;}
+    .board-card{grid-column:auto; grid-row:auto;}
+    .focus-card{grid-column:auto; grid-row:auto;}
     .app-shell{grid-template-columns:1fr; grid-template-areas:"header" "main";}
     .sidebar{
       position:fixed; left:0; right:0; bottom:0; top:auto; height:auto;
@@ -754,11 +844,15 @@
     scrollbar-width:thin;
     scrollbar-color:var(--forest-pale) transparent;
   }
+  /* The board fills the width it is given, but never squeezes a column below a
+     readable minimum: on narrow viewports the seven columns overflow into the
+     existing horizontal scroll rather than collapsing into unreadable ribbons.
+     128px keeps a task card wide enough for a title and location on one line. */
   .board-header,
   .board-body{
-    width:100%;
-    min-width:800px;
-    grid-template-columns:repeat(7,minmax(96px,1fr));
+    width:max(100%, 980px);
+    min-width:980px;
+    grid-template-columns:repeat(7,minmax(128px,1fr));
     gap:10px;
     padding-left:14px;
     padding-right:14px;
