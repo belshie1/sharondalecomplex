@@ -35,10 +35,13 @@ export default async function run(page) {
 
   // 3. THE POINT: a completely separate browser context (own cookies, own
   //    localStorage, simulating another device) sees the same data.
+  //    Derive the origin from the page under test so this works on whatever
+  //    port the suite was pointed at, rather than assuming 3000.
+  const origin = await page.evaluate(() => location.origin);
   const other = await page.context().browser().newContext();
   const otherPage = await other.newPage();
-  await otherPage.goto("http://localhost:3000/", { waitUntil: "domcontentloaded" });
-  await otherPage.waitForTimeout(1800);
+  await otherPage.goto(origin + "/", { waitUntil: "domcontentloaded" });
+  await otherPage.waitForTimeout(2000);
   out.secondDeviceSeesTask = await otherPage
     .locator(".task-card", { hasText: marker_ })
     .count() === 1;

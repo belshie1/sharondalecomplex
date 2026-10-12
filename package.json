@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server/index.mjs",
     "serve": "node tests/serve.mjs",
-    "test:api": "node tests/api.mjs"
+    "test": "node tests/run-all.mjs"
   },
   "engines": {
     "node": ">=20"
