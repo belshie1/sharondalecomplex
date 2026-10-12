@@ -78,9 +78,9 @@ A "Saved" chip in the header reports the state of the connection:
 
 | Chip | Meaning |
 |---|---|
-| **Saved** | The server confirmed the write. |
-| **Offline - will retry** | The server was unreachable. The change is held locally and retried every 5 seconds. |
-| **Could not save** | The server rejected the write (for example a bad payload). |
+| **Saved** | Unlocked, and the server confirmed the write. |
+| **Locked - enter code** | Readable, but changes need the access code. Click it to enter one. |
+| **Offline - will retry** | The server was unreachable; the change is held and retried. |
 
 The browser keeps a `localStorage` snapshot purely as an **offline cache**: if the
 API is down the dashboard still opens and stays usable, and it syncs once the
@@ -98,7 +98,9 @@ In short, two things matter:
    filesystem, so without this the board resets on every deploy. Set
    `SHARONDALE_DB` to a path on the volume, or mount it at `/app/data`.
 2. **Set `SHARONDALE_TOKEN`** before the URL is public, or anyone who finds it can
-   change the board.
+   change the board. There is nothing to paste into the repo: open the dashboard
+   once and enter the code when prompted. It is stored in that browser and never
+   appears in the page source.
 
 Deploy artefacts included in the repo:
 

@@ -52,7 +52,7 @@ Then put a reverse proxy (nginx, Caddy, Cloudflare Tunnel) in front for HTTPS.
 Use the same `Dockerfile`. Set these environment variables:
 
 | Variable | Purpose |
-|---|---|
+| --- | --- |
 | `PORT` | Port to listen on. Most hosts set this for you. |
 | `SHARONDALE_TOKEN` | Required to make writes safe. |
 | `SHARONDALE_DB` | Path to the database, e.g. `/app/data/sharondale.db`. |
@@ -68,21 +68,34 @@ plus a `[mounts]` entry; on Railway it is a volume on the service.
 openssl rand -hex 24
 ```
 
-Put the value in **both** places - they must match:
+Set it on the host as `SHARONDALE_TOKEN`, then **open the dashboard and enter the
+same code when prompted**. The first load shows a "Locked - enter code" chip and
+an unlock prompt; once entered, the code is stored in that browser only and you
+are not asked again.
 
-1. The host's environment variables, as `SHARONDALE_TOKEN`.
-2. The dashboard, in `dashboard/index.html`, *before* `app.js` loads:
+There is nothing to paste into the repo. The code is never committed and never
+appears in the page source, so someone reading the HTML cannot copy it. Each
+person who needs to make changes enters the code once on their own device.
+
+If you would rather bake it into the page (simpler, but visible to anyone who
+views source), put this in `dashboard/index.html` before `app.js` loads:
 
 ```html
 <script>window.SHARONDALE_TOKEN = "the-same-value";</script>
 ```
 
-If these differ, the dashboard loads but every save fails with a 401.
+The chip states:
 
-**Be aware:** a token in the page source is visible to anyone who views it. It
-stops casual tampering, not a determined attacker. If the board will hold
-anything sensitive, add real authentication (a login page and a session cookie)
-before putting it on a public URL.
+| Chip | Meaning |
+| --- | --- |
+| **Saved** | Unlocked, and the server confirmed the last write. |
+| **Locked - enter code** | Readable, but changes need the code. Click it to enter one. |
+| **Offline - will retry** | The server is unreachable; the change is held and retried. |
+
+**Be aware:** the code stops people *changing* the board, not *reading* it.
+Anyone with the URL can still see every task and complaint. If the board will
+hold anything sensitive, add real authentication (a login page and a session
+cookie) before putting it on a public URL.
 
 ---
 
@@ -96,8 +109,9 @@ curl https://your-app.example.com/api/health
 {"ok":true,"seeded":true,"tasks":12,"complaints":5,"shopping":4,"writesProtected":true}
 ```
 
-`writesProtected: true` means the token is set. If it is `false`, the board is
-publicly writable and you should set the token immediately.
+`writesProtected: true` means the token is set. If it is `false`, **the board is
+publicly writable** - anyone who finds the URL can change or wipe it - and you
+should set the token immediately.
 
 ---
 

@@ -137,9 +137,27 @@
   // Nothing here is destructive: a failed read falls back to the cache, and a
   // failed write keeps the change locally and retries.
   const API_BASE = window.SHARONDALE_API || "/api";
-  // Optional write token, supplied by the page before app.js loads when the
-  // backend has SHARONDALE_TOKEN set. Absent locally, required in production.
-  const WRITE_TOKEN = window.SHARONDALE_TOKEN || "";
+  // The write token authorises changes. It comes from a value baked into the
+  // page if the operator chose that, otherwise from this browser's storage once
+  // the caretaker has entered it. Keeping it out of the repo means the key is
+  // not sitting in the page source for anyone to copy.
+  const TOKEN_KEY = "sharondaleToken";
+  let writeToken = "";
+  function readStoredToken() {
+    if (window.SHARONDALE_TOKEN) return window.SHARONDALE_TOKEN;
+    try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
+  }
+  function storeToken(value) {
+    writeToken = value;
+    try {
+      if (value) localStorage.setItem(TOKEN_KEY, value);
+      else localStorage.removeItem(TOKEN_KEY);
+    } catch (e) { /* private mode: works for this session, just not remembered */ }
+  }
+  writeToken = readStoredToken();
+  // Set once the server refuses a write for lack of authorisation, so the UI can
+  // offer the unlock prompt instead of silently failing to save.
+  let needsToken = false;
   let serverReachable = null; // null = unknown yet
   let pendingSync = false;    // local changes not yet confirmed by the server
   let syncTimer = null;
@@ -204,7 +222,7 @@
   function api(path, options) {
     const opts = options || {};
     const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
-    if (WRITE_TOKEN) headers["X-Sharondale-Token"] = WRITE_TOKEN;
+    if (writeToken) headers["X-Sharondale-Token"] = writeToken;
     return fetch(API_BASE + path, Object.assign({}, opts, { headers }));
   }
 
@@ -218,10 +236,20 @@
         method: "PUT",
         body: JSON.stringify(boardPayload())
       });
+      if (res.status === 401) {
+        // The server wants an access code. This is not a lost change and not a
+        // network problem, so it gets its own state and the unlock prompt.
+        needsToken = true;
+        serverReachable = true;
+        setSaveState("locked");
+        offerUnlock();
+        return false;
+      }
       if (!res.ok) {
         const detail = await res.json().catch(function () { return {}; });
         throw new Error(detail.error || ("HTTP " + res.status));
       }
+      needsToken = false;
       serverReachable = true;
       pendingSync = false;
       setSaveState("saved");
@@ -331,15 +359,107 @@
     if (!el) return;
     el.classList.toggle("saving", state === "saving");
     el.classList.toggle("offline", state === "offline");
+    el.classList.toggle("locked", state === "locked");
     el.classList.toggle("error", state === "error");
     el.textContent =
       state === "offline" ? "Offline - will retry" :
+      state === "locked" ? "Locked - enter code" :
       state === "error" ? "Could not save" : "Saved";
     el.title =
       state === "offline" ? "The server is unreachable. Your change is kept here and will be sent when it comes back." :
+      state === "locked" ? "You can browse, but changes need the access code. Click to enter it." :
       state === "error" ? "The board could not be saved." :
       "Your board is saved on the server and shared with every device.";
   }
+
+  /* ---------------- Access code (write token) ---------------- */
+  // The board is readable by anyone with the link, but changing it needs the
+  // code the operator set on the server. The code lives in this browser only.
+  const tokenModal = document.getElementById("tokenModal");
+  const tokenForm = document.getElementById("tokenForm");
+  const tokenInput = document.getElementById("tokenInput");
+  const tokenError = document.getElementById("tokenError");
+
+  function openTokenModal() {
+    tokenError.textContent = "";
+    tokenInput.value = "";
+    tokenModal.classList.add("open");
+    tokenInput.focus();
+  }
+  function closeTokenModal() { tokenModal.classList.remove("open"); }
+
+  // Only interrupt the caretaker once: after the first refusal the header chip
+  // carries the state, and clicking it reopens the prompt.
+  let unlockOffered = false;
+  function offerUnlock() {
+    if (unlockOffered) return;
+    unlockOffered = true;
+    openTokenModal();
+  }
+
+  async function verifyAndStoreToken(candidate) {
+    const previous = writeToken;
+    writeToken = candidate;
+    try {
+      const res = await api("/board", {
+        method: "PUT",
+        body: JSON.stringify(boardPayload())
+      });
+      if (res.status === 401) {
+        writeToken = previous;
+        return false;
+      }
+      if (!res.ok) {
+        writeToken = previous;
+        throw new Error("HTTP " + res.status);
+      }
+      storeToken(candidate);
+      needsToken = false;
+      serverReachable = true;
+      pendingSync = false;
+      setSaveState("saved");
+      return true;
+    } catch (error) {
+      writeToken = previous;
+      throw error;
+    }
+  }
+
+  tokenForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const candidate = tokenInput.value.trim();
+    if (!candidate) return;
+    tokenError.textContent = "Checking...";
+    try {
+      const ok = await verifyAndStoreToken(candidate);
+      if (!ok) {
+        tokenError.textContent = "That code was not accepted. Try again.";
+        tokenInput.select();
+        return;
+      }
+      closeTokenModal();
+      logActivity("Unlocked this browser for editing");
+      toast("Unlocked - you can now make changes");
+      renderAll();
+      renderComplaints();
+      renderShopping();
+      renderPeople();
+    } catch (error) {
+      tokenError.textContent = "Could not reach the server: " + error.message;
+    }
+  });
+
+  document.getElementById("cancelToken").addEventListener("click", function () {
+    closeTokenModal();
+    toast("Browsing read-only");
+  });
+  tokenModal.addEventListener("click", function (e) {
+    if (e.target === tokenModal) closeTokenModal();
+  });
+  document.getElementById("saveState").addEventListener("click", function () {
+    if (needsToken || saveState === "locked") openTokenModal();
+  });
+
   // Persist on every meaningful interaction, and once more if the tab is
   // closed mid-change so nothing is lost.
   function markSaving() { setSaveState("saving"); saveBoardData(); }
@@ -1587,8 +1707,26 @@
       renderShopping();
       renderPeople();
       setSaveState(serverReachable ? "saved" : "offline");
+      // Establishing read access does not prove write access, so probe with a
+      // no-op save. If the server wants a code, the chip says so rather than the
+      // caretaker discovering it when their first change appears to vanish.
+      if (serverReachable) probeWriteAccess();
       watchForOtherDevices();
     });
+  }
+
+  async function probeWriteAccess() {
+    if (!serverReachable) return;
+    try {
+      const res = await api("/board", { method: "PUT", body: JSON.stringify(boardPayload()) });
+      if (res.status === 401) {
+        needsToken = true;
+        setSaveState("locked");
+        offerUnlock();
+      }
+    } catch (error) {
+      /* the retry loop and the offline chip already cover this */
+    }
   }
 
   // Live sync: the backend pushes an event whenever any device writes, so a

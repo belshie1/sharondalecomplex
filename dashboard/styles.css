@@ -378,8 +378,21 @@
   .save-state.saving::before{background:var(--amber);}
   .save-state.offline{color:var(--amber-dark); background:var(--amber-pale); border-color:rgba(180,130,40,0.24);}
   .save-state.offline::before{background:var(--amber);}
+  .save-state.locked{color:#7A5A12; background:#F6EBD8; border-color:rgba(169,118,27,0.28);}
+  .save-state.locked::before{background:#A9761B;}
+  .save-state.locked{cursor:pointer;}
   .save-state.error{color:var(--coral); background:#F7E7E3; border-color:rgba(190,80,60,0.24);}
   .save-state.error::before{background:var(--coral);}
+
+  /* ---- Access code modal ---- */
+  .token-modal{width:min(420px, 100%);}
+  .token-note{font-size:12.5px; color:var(--muted); line-height:1.5; margin:0;}
+  .token-modal .field input{
+    border:1px solid var(--line); background:#FEFCF6; border-radius:9px;
+    padding:10px 11px; font:inherit; color:var(--ink); width:100%;
+  }
+  .token-modal .field input:focus{border-color:var(--forest); outline:none;}
+  .token-error{color:var(--coral); font-size:12px; min-height:16px;}
 
   /* ---- Quick add composer ---- */
   .composer{

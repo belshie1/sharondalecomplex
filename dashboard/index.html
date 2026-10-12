@@ -444,6 +444,32 @@
   </form>
 </div>
 
+<div class="modal-overlay" id="tokenModal">
+  <form class="modal token-modal" id="tokenForm">
+    <div class="modal-head">
+      <div>
+        <h2>Unlock this dashboard</h2>
+        <div class="sub">Enter the caretaker access code to make changes</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <p class="token-note" id="tokenNote">
+        This board is read-only until you enter the access code. It is stored in
+        this browser only and never shared.
+      </p>
+      <div class="field">
+        <label for="tokenInput">Access code</label>
+        <input type="password" id="tokenInput" autocomplete="current-password" required>
+        <span class="token-error" id="tokenError" role="alert"></span>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="cancelToken">Just browse</button>
+        <button type="submit" class="btn btn-primary btn-sm">Unlock</button>
+      </div>
+    </div>
+  </form>
+</div>
+
 <div class="toast-stack" id="toastStack"></div>
 
 <script src="app.js" defer></script>
