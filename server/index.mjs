@@ -111,6 +111,23 @@ function validateBoard(body) {
     if (typeof s.id !== "number") errors.push(`shopping[${i}].id must be a number.`);
     if (typeof s.label !== "string" || !s.label.trim()) errors.push(`shopping[${i}].label is required.`);
   });
+  if (body.people !== undefined) {
+    if (!Array.isArray(body.people)) {
+      errors.push("people must be an array.");
+    } else {
+      const seen = new Set();
+      body.people.forEach((p, i) => {
+        if (typeof p.name !== "string" || !p.name.trim()) {
+          errors.push(`people[${i}].name is required.`);
+        } else {
+          const key = p.name.trim().toLowerCase();
+          if (seen.has(key)) errors.push(`people[${i}].name "${p.name}" is a duplicate.`);
+          seen.add(key);
+        }
+        if (p.id === undefined || p.id === null) errors.push(`people[${i}].id is required.`);
+      });
+    }
+  }
   return errors;
 }
 
@@ -136,15 +153,25 @@ async function handleApi(req, res, pathname) {
   if (pathname === "/api/events" && req.method === "GET") {
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      // Tells buffering proxies (nginx, some PaaS routers) to pass events
+      // straight through instead of holding the response open.
+      "X-Accel-Buffering": "no",
     });
     res.write("retry: 5000\n\n");
     res.write("event: hello\ndata: {}\n\n");
     clients.add(res);
-    const keepAlive = setInterval(() => res.write(": ping\n\n"), 25000);
+    // SSE is a bonus, not a requirement: if nothing has changed for a while the
+    // stream is closed so it never holds a page load or a reload open. The
+    // browser reconnects automatically on the next change.
+    let keepAlive = setInterval(() => res.write(": ping\n\n"), 15000);
+    const maxIdle = setTimeout(() => {
+      try { res.end(); } catch (e) { /* already gone */ }
+    }, 60000);
     req.on("close", () => {
       clearInterval(keepAlive);
+      clearTimeout(maxIdle);
       clients.delete(res);
     });
     return;
@@ -172,6 +199,9 @@ async function handleApi(req, res, pathname) {
         complaints: body.complaints,
         shopping: body.shopping || [],
         recurring: body.recurring || [],
+        // Omit people to leave them untouched; the People screen always sends
+        // the full list, so an empty array there genuinely clears the roster.
+        people: body.people === undefined ? null : body.people,
       });
       broadcast();
       return sendJson(res, 200, { ok: true, board: saved });

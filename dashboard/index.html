@@ -6,7 +6,10 @@
 <title>Sharondale — Caretaker Operations</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<!-- The web fonts are a nice-to-have: load them without letting a slow or
+     blocked font CDN hold up the dashboard's own stylesheet and script. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"></noscript>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -36,6 +39,11 @@
         Shopping list
         <span class="count" id="navShoppingCount">0</span>
       </button>
+      <button class="nav-item" data-view="people">
+        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/></svg>
+        People
+        <span class="count" id="navPeopleCount">0</span>
+      </button>
       <button class="nav-item" id="weeklyReportNav">
         <svg class="icon" viewBox="0 0 24 24"><path d="M5 3.5h14v17H5z"/><path d="M9 8.5h6M9 12h6M9 15.5h3.5"/></svg>
         Weekly report
@@ -43,10 +51,11 @@
     </nav>
 
     <div class="sidebar-foot">
-      <div class="avatar">MC</div>
-      <div>
-        <div class="who">Marco Conti</div>
-        <div class="role">Lead caretaker</div>
+      <div class="avatar" id="userAvatar">MC</div>
+      <div class="who-block">
+        <label class="user-label" for="currentUserSelect">Working as</label>
+        <select id="currentUserSelect" class="user-select" aria-label="Who is using this dashboard"></select>
+        <div class="role" id="userRole">Lead caretaker</div>
       </div>
     </div>
   </aside>
@@ -161,6 +170,12 @@
             <label for="f-assignee">Assign to</label>
             <select id="f-assignee">
               <option value="">Unassigned</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-created-by">Created by</label>
+            <select id="f-created-by">
+              <option value="">Not specified</option>
             </select>
           </div>
           <div class="field" style="grid-column:1 / -1;">
@@ -294,6 +309,29 @@
         <div class="shopping-foot" id="shoppingFoot">
           <span class="shopping-note" id="shoppingCleared" hidden>Checked-off items are removed from the list.</span>
         </div>
+      </div>
+    </section>
+
+    <!-- ===================== PEOPLE VIEW ===================== -->
+    <section class="view" id="view-people">
+      <div class="page-head">
+        <div>
+          <h1>People</h1>
+          <p class="range" id="peopleSummary">Who tasks can be assigned to</p>
+        </div>
+      </div>
+
+      <div class="people-card">
+        <form class="people-add" id="peopleForm">
+          <input type="text" id="peopleName" placeholder="Name, e.g. Sam Okafor" autocomplete="off" required>
+          <input type="text" id="peopleRole" placeholder="Role (optional), e.g. Maintenance" autocomplete="off">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Add person
+          </button>
+        </form>
+
+        <div class="people-list" id="peopleList"></div>
       </div>
     </section>
 

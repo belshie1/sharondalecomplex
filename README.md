@@ -17,6 +17,10 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - Create a task with no date: it is parked in the **Unscheduled** list until you schedule it
 - Drag an unscheduled task onto any day column to schedule it, or drag a scheduled task back to the Unscheduled list
 - Assign a task to a team member when creating it, or leave it unassigned
+- Record who created a task: the composer has a **Created by** list that defaults to whoever is signed in
+- Manage the roster from the **People** screen: add or remove names, give them a role, and see each person's open task count
+- Switch who you are with the **Working as** selector in the sidebar; the Created by default follows it
+- Assign a task to yourself in one click from the card
 - Edit an existing task (title, location, due date or Unscheduled, priority, and assignee) from the pencil button on its card
 - Mark a task to repeat every week indefinitely; recurring templates are stored on the server, so every device sees the same repeats
 - Require a password before removing tasks; removing a recurring task also stops future weekly repeats
@@ -41,6 +45,8 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - `tests/qa-edit-assign.mjs` - browser QA script covering task editing, reassignment, and the assignee selector
 - `tests/qa-backlog.mjs` - browser QA script covering the unscheduled list, drag-to-schedule, and persistence
 - `tests/qa-shopping.mjs` - browser QA script covering the shopping list, tick-to-remove, and persistence
+- `tests/qa-people.mjs` - browser QA script covering the People roster and the Created by field
+- `tests/run-all.mjs` - runs every QA suite against a throwaway backend (`npm test`)
 - `tests/qa-backend.mjs` - proves data is stored server-side and visible from a second device
 - `tests/helpers.mjs` - shared QA helpers, including a board reset
 - `tests/serve.mjs` - minimal static-only server, for working on the UI without the API
@@ -125,6 +131,9 @@ sensitive.
 `server/db.mjs` is the only file that touches storage, and it exports exactly
 four functions (`readAll`, `replaceBoard`, `isSeeded`, `closeDb`). Replacing the
 SQLite calls with Postgres or Supabase means rewriting that one file.
+
+The roster of people lives on the server too, so a name added on one device is
+immediately available everywhere.
 
 ## API
 

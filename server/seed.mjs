@@ -59,6 +59,12 @@ export function seedIfEmpty() {
       { id: 4, label: "Pool chlorine tablets", qty: 3, addedBy: "Tomas Brandt" },
     ],
     recurring: [],
+    people: [
+      { id: "p-1", name: "Marco Conti", role: "Lead caretaker" },
+      { id: "p-2", name: "Elena Ruiz", role: "Grounds" },
+      { id: "p-3", name: "Tomas Brandt", role: "Maintenance" },
+      { id: "p-4", name: "Priya Nair", role: "Cleaning" },
+    ],
   });
   return true;
 }

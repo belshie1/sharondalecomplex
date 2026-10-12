@@ -25,6 +25,7 @@ const SUITES = [
   "qa-edit-assign.mjs",
   "qa-backlog.mjs",
   "qa-shopping.mjs",
+  "qa-people.mjs",
   "qa-backend.mjs",
 ];
 

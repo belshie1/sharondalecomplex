@@ -589,12 +589,22 @@
     position:absolute; top:8px; right:31px; color:#C7CDC3; display:flex; gap:2px;
   }
   .task-card .drag-handle .icon{width:13px;height:13px;}
-  .task-card .t-actions{display:flex; align-items:center; gap:2px; margin-left:auto;}
+  .task-card .t-actions{display:flex; align-items:center; gap:2px; margin-left:auto; position:relative;}
   .task-card .task-edit,
-  .task-card .task-delete{
+  .task-card .task-delete,
+  .task-card .task-assign-me{
     display:flex;align-items:center;justify-content:center;
     width:22px;height:22px;padding:0;border:0;border-radius:6px;
     background:transparent;cursor:pointer;
+  }
+  .task-card .task-assign-me{color:var(--forest);}
+  .task-card .task-assign-me:hover{background:var(--forest-pale);}
+  .task-card .task-assign-me .icon{width:14px;height:14px;}
+  /* The button is icon-only on the card, so the wording stays available to
+     screen readers and to the QA assertions that read card text. */
+  .task-card .sr-label{
+    position:absolute; width:1px; height:1px; overflow:hidden;
+    clip-path:inset(50%); white-space:nowrap; margin:-1px;
   }
   .task-card .task-edit{color:var(--forest);}
   .task-card .task-edit:hover{background:var(--forest-pale);}
@@ -752,6 +762,87 @@
   .shopping-empty .icon{width:18px; height:18px; stroke:var(--forest);}
   .shopping-foot{margin-top:14px;}
   .shopping-note{font-size:11.5px; color:var(--muted);}
+
+  /* ---- People ---- */
+  .people-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-sm);
+    padding:20px 22px;
+    max-width:760px;
+  }
+  .people-add{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;
+    gap:10px;
+    margin-bottom:18px;
+  }
+  .people-add input{
+    border:1px solid var(--line); background:#FEFCF6; border-radius:9px;
+    padding:10px 12px; font:inherit; font-size:13px; color:var(--ink);
+    width:100%; min-width:0;
+  }
+  .people-add input:focus{border-color:var(--forest); outline:none;}
+  .people-list{display:flex; flex-direction:column; gap:8px;}
+  .people-empty{
+    font-size:13px; color:var(--muted); line-height:1.5;
+    padding:22px 6px; text-align:center;
+  }
+  .person-row{
+    display:flex; align-items:center; gap:12px;
+    background:var(--canvas); border:1px solid var(--line);
+    border-radius:10px; padding:11px 14px;
+  }
+  .person-avatar{
+    flex:0 0 auto;
+    width:34px; height:34px; border-radius:50%;
+    background:var(--forest); color:#F6EFDD;
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:700; letter-spacing:0.02em;
+  }
+  .person-row .person-body{min-width:0; flex:1;}
+  .person-name{
+    font-size:13.5px; font-weight:600;
+    display:flex; align-items:center; gap:7px; flex-wrap:wrap;
+  }
+  .person-me{
+    font-size:9.5px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase;
+    color:var(--forest); background:var(--forest-pale);
+    padding:1px 7px; border-radius:10px;
+  }
+  .person-admin{
+    font-size:9.5px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase;
+    color:#8A5A16; background:var(--amber-pale); padding:1px 7px; border-radius:10px;
+  }
+  .person-meta{font-size:11.5px; color:var(--muted); margin-top:3px;}
+  .person-actions{display:flex; align-items:center; gap:6px; flex:0 0 auto;}
+  .person-remove{
+    display:flex; align-items:center; justify-content:center;
+    width:30px; height:30px; padding:0; border:0; border-radius:7px;
+    background:transparent; color:var(--muted); cursor:pointer;
+  }
+  .person-remove:hover{background:#F4E2DE; color:#873C32;}
+  .person-remove .icon{width:15px; height:15px;}
+  .task-card .t-creator{
+    font-size:10px; color:var(--muted); font-style:italic;
+  }
+
+  /* ---- "Working as" selector ---- */
+  .sidebar-foot .who-block{min-width:0; flex:1;}
+  .user-label{
+    display:block; font-size:9.5px; letter-spacing:0.06em; text-transform:uppercase;
+    color:#9FB3A6; margin-bottom:3px;
+  }
+  .user-select{
+    width:100%; max-width:150px;
+    background:rgba(255,255,255,0.08); color:#F6EFDD;
+    border:1px solid rgba(255,255,255,0.18); border-radius:7px;
+    padding:5px 7px; font:inherit; font-size:12.5px; font-weight:600;
+    cursor:pointer;
+  }
+  .user-select:focus{outline:2px solid var(--amber); outline-offset:1px;}
+  .user-select option{color:var(--ink); background:#fff;}
   .complaints-head{
     display:grid;
     grid-template-columns:1.6fr 0.8fr 1fr 0.8fr 1.4fr;

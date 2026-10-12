@@ -38,6 +38,7 @@ db.exec(`
     due_date     TEXT NOT NULL DEFAULT '',
     priority     TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
     assignee     TEXT NOT NULL DEFAULT '',
+    created_by   TEXT NOT NULL DEFAULT '',
     done         INTEGER NOT NULL DEFAULT 0,
     photo        TEXT,
     moved        TEXT,
@@ -66,6 +67,17 @@ db.exec(`
     updated_at TEXT NOT NULL
   );
 
+  -- People are a first-class list now rather than a constant in the client, so
+  -- the caretaker can add and remove names without a code change.
+  CREATE TABLE IF NOT EXISTS people (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    role       TEXT NOT NULL DEFAULT '',
+    color      TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
+
   -- Recurring templates are stored server-side so every device re-applies the
   -- same weekly tasks on load, instead of each browser inventing its own.
   CREATE TABLE IF NOT EXISTS recurring_tasks (
@@ -77,6 +89,17 @@ db.exec(`
     assignee TEXT NOT NULL DEFAULT ''
   );
 `);
+
+// Lightweight migrations for databases created before a column existed.
+// ADD COLUMN is cheap and idempotent, so an existing deployment keeps its data
+// instead of needing a rebuild.
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (cols.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+}
+
+ensureColumn("tasks", "created_by", "TEXT NOT NULL DEFAULT ''");
 
 const now = () => new Date().toISOString();
 
@@ -90,6 +113,7 @@ function taskFromRow(r) {
     day: r.due_date,
     priority: r.priority,
     assignee: r.assignee,
+    createdBy: r.created_by || "",
     done: !!r.done,
     photo: r.photo,
     moved: r.moved,
@@ -112,6 +136,10 @@ function complaintFromRow(r) {
 
 function shoppingFromRow(r) {
   return { id: r.id, label: r.label, qty: r.qty, addedBy: r.added_by };
+}
+
+function personFromRow(r) {
+  return { id: r.id, name: r.name, role: r.role, color: r.color };
 }
 
 /* -------------------------------- reads -------------------------------- */
@@ -140,7 +168,11 @@ export function readAll() {
       priority: r.priority,
       assignee: r.assignee,
     }));
-  return { tasks, complaints, shopping, recurring };
+  const people = db
+    .prepare("SELECT * FROM people ORDER BY sort_order ASC, name ASC")
+    .all()
+    .map(personFromRow);
+  return { tasks, complaints, shopping, recurring, people };
 }
 
 export function isSeeded() {
@@ -152,11 +184,11 @@ export function isSeeded() {
 
 const upsertTask = () =>
   db.prepare(`
-    INSERT INTO tasks (id,title,location,due_date,priority,assignee,done,photo,moved,recurring,recurring_id,sort_order,updated_at)
-    VALUES (:id,:title,:location,:day,:priority,:assignee,:done,:photo,:moved,:recurring,:recurringId,:sortOrder,:updatedAt)
+    INSERT INTO tasks (id,title,location,due_date,priority,assignee,created_by,done,photo,moved,recurring,recurring_id,sort_order,updated_at)
+    VALUES (:id,:title,:location,:day,:priority,:assignee,:createdBy,:done,:photo,:moved,:recurring,:recurringId,:sortOrder,:updatedAt)
     ON CONFLICT(id) DO UPDATE SET
       title=:title, location=:location, due_date=:day, priority=:priority,
-      assignee=:assignee, done=:done, photo=:photo, moved=:moved,
+      assignee=:assignee, created_by=:createdBy, done=:done, photo=:photo, moved=:moved,
       recurring=:recurring, recurring_id=:recurringId, sort_order=:sortOrder,
       updated_at=:updatedAt
   `);
@@ -167,7 +199,7 @@ const upsertTask = () =>
  * board write is both simpler and safer than diffing every field client-side:
  * a half-applied drag can never be stored.
  */
-export function replaceBoard({ tasks = [], complaints = [], shopping = [], recurring = [] }) {
+export function replaceBoard({ tasks = [], complaints = [], shopping = [], recurring = [], people = null }) {
   const writeTasks = upsertTask();
   const writeComplaint = db.prepare(`
     INSERT INTO complaints (id,owner,apt,type,age,status,note,updated_at)
@@ -189,6 +221,13 @@ export function replaceBoard({ tasks = [], complaints = [], shopping = [], recur
       title=:title, location=:location, day=:day,
       priority=:priority, assignee=:assignee
   `);
+  const writePerson = db.prepare(`
+    INSERT INTO people (id,name,role,color,sort_order,updated_at)
+    VALUES (:id,:name,:role,:color,:sortOrder,:updatedAt)
+    ON CONFLICT(id) DO UPDATE SET
+      name=:name, role=:role, color=:color,
+      sort_order=:sortOrder, updated_at=:updatedAt
+  `);
 
   const ts = now();
   db.exec("BEGIN IMMEDIATE");
@@ -201,6 +240,7 @@ export function replaceBoard({ tasks = [], complaints = [], shopping = [], recur
         day: t.day || "",
         priority: t.priority,
         assignee: t.assignee || "",
+        createdBy: t.createdBy || "",
         done: t.done ? 1 : 0,
         photo: t.photo || null,
         moved: t.moved || null,
@@ -276,6 +316,42 @@ export function replaceBoard({ tasks = [], complaints = [], shopping = [], recur
       ).run(...recurringIds);
     } else {
       db.prepare("DELETE FROM recurring_tasks").run();
+    }
+
+    // People are only touched when the caller supplies a list. `null` (or an
+    // omitted key) means "leave the roster alone", which is what a partial
+    // writer such as a test fixture expects; an empty array genuinely clears
+    // it. Tasks keep their assignee text either way, so removing a person
+    // never silently unassigns their existing work.
+    if (people !== null) {
+      // A person is identified by NAME, not id: name is the unique key the
+      // roster is built on, and the client can legitimately send a new id for a
+      // name that already exists (remove then re-add). Upserting on id alone
+      // would hit the UNIQUE(name) constraint and fail the whole save.
+      //
+      // Two passes are needed because both directions can clash:
+      //   1. drop anyone missing from the payload (a deletion),
+      //   2. drop any row whose id differs but whose name matches the incoming
+      //      row (a re-add under a new id), which would otherwise collide.
+      const stale = db.prepare("SELECT id, name FROM people").all();
+      const incomingNames = new Set(people.map((p) => String(p.name).trim().toLowerCase()));
+      const dropByName = db.prepare("DELETE FROM people WHERE name = ?");
+      for (const row of stale) {
+        if (!incomingNames.has(String(row.name).trim().toLowerCase())) dropByName.run(row.name);
+      }
+      const dropStaleId = db.prepare("DELETE FROM people WHERE name = ? AND id <> ?");
+      for (const p of people) dropStaleId.run(p.name, String(p.id));
+
+      people.forEach((p, i) => {
+        writePerson.run({
+          id: String(p.id),
+          name: p.name,
+          role: p.role || "",
+          color: p.color || "",
+          sortOrder: i,
+          updatedAt: ts,
+        });
+      });
     }
 
     db.exec("COMMIT");

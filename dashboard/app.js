@@ -60,13 +60,17 @@
   let uid = 100;
   const DELETE_PASSWORD = "5879";
 
-  // People a task can be assigned to. "Unassigned" is represented by an empty
-  // assignee value rather than a roster entry.
-  const STAFF = ["Marco Conti", "Elena Ruiz", "Tomas Brandt", "Priya Nair"];
+  // The roster of people tasks can be assigned to. It comes from the server so
+  // the caretaker can manage it from the People screen instead of it being a
+  // constant buried in this file. "Unassigned" is an empty value, not a person.
+  let people = [];
+  let peopleUid = 1;
   const UNASSIGNED = "";
   function assigneeLabel(value) {
     return value ? value : "Unassigned";
   }
+  // Current signed-in caretaker, from the "working as" choice in the sidebar.
+  let currentUser = "Marco Conti";
 
   const tasks = [
     { id: uid++, title: "Pool filter back-flush", location: "Clubhouse - Pool deck", day: dayDate.mon, priority: "medium", assignee: "Elena Ruiz", done: true, photo: null, moved: null },
@@ -258,7 +262,8 @@
         tasks: (board.tasks || []).filter(isValidTask).map(normalizeTask),
         complaints: (board.complaints || []).filter(isValidComplaint),
         shopping: (board.shopping || []).filter(isValidShoppingItem),
-        recurring: board.recurring || []
+        recurring: board.recurring || [],
+        people: board.people || []
       };
     } catch (error) {
       serverReachable = false;
@@ -273,7 +278,8 @@
         tasks: (cached.tasks || []).filter(isValidTask).map(normalizeTask),
         complaints: (cached.complaints || []).filter(isValidComplaint),
         shopping: (cached.shopping || []).filter(isValidShoppingItem),
-        recurring: cached.recurring || []
+        recurring: cached.recurring || [],
+        people: cached.people || []
       };
     }
   }
@@ -376,13 +382,19 @@
       '</div></div>' +
       thumb +
       '<div class="t-assignee' + (t.assignee ? "" : " unassigned") + '">' +
-      '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/></svg>' +
-      '<span>' + escapeHtml(assigneeLabel(t.assignee)) + '</span>' +
+        '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/></svg>' +
+        '<span>' + escapeHtml(assigneeLabel(t.assignee)) + '</span>' +
       '</div>' +
+      (t.createdBy ? '<div class="t-creator">Created by ' + escapeHtml(t.createdBy) + '</div>' : "") +
       '<div class="t-meta"><span class="t-pill">' + (t.priority[0].toUpperCase() + t.priority.slice(1)) + ' priority</span>' +
       (t.recurring ? '<span class="t-recurring">Weekly</span>' : "") +
-      (t.moved ? ('<span class="t-moved">Moved from ' + DAY_NAMES[t.moved] + '</span>') : "") +
+      (t.moved ? ('<span class="t-moved">Moved from ' + dateLabel(t.moved) + '</span>') : "") +
       '<span class="t-actions">' +
+      (currentUser && t.assignee !== currentUser
+        ? '<button type="button" class="task-assign-me" title="Assign this task to ' + escapeHtml(currentUser) + '">' +
+          '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.4"/><path d="M5.5 19.5a6.5 6.5 0 0 1 13 0"/></svg>' +
+          '<span class="sr-label">Assign to me</span></button>'
+        : "") +
       '<button type="button" class="task-edit" aria-label="Edit ' + escapeHtml(t.title) + '" title="Edit task"><svg class="icon" viewBox="0 0 24 24"><path d="M4 20h4l10-10-4-4L4 16v4Z"/><path d="M13.5 6.5l4 4"/></svg></button>' +
       '<button type="button" class="task-delete" aria-label="Remove ' + escapeHtml(t.title) + '" title="Remove task"><svg class="icon" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 14h12l1-14M9 7V4h6v3"/></svg></button>' +
       '</span>' +
@@ -514,6 +526,21 @@
         const task = findTask(card.dataset.id);
         if (task) openEditModal(task);
       });
+      const assignMe = card.querySelector(".task-assign-me");
+      if (assignMe) {
+        assignMe.addEventListener("click", function (e) {
+          e.stopPropagation();
+          const task = findTask(card.dataset.id);
+          if (!task || !currentUser) return;
+          const previous = task.assignee;
+          task.assignee = currentUser;
+          logActivity("Assigned \"" + task.title + "\" to " + currentUser +
+            (previous ? " (was " + previous + ")" : ""));
+          toast("Assigned to " + currentUser);
+          markSaving();
+          renderAll();
+        });
+      }
       card.querySelector(".task-delete").addEventListener("click", function (e) {
         e.stopPropagation();
         const task = findTask(card.dataset.id);
@@ -625,9 +652,22 @@
     }).join("");
 
   function fillStaffSelect(select) {
-    select.innerHTML = '<option value="">Unassigned</option>' + STAFF.map(function (name) {
-      return '<option value="' + escapeHtml(name) + '">' + escapeHtml(name) + '</option>';
+    select.innerHTML = '<option value="">Unassigned</option>' + people.map(function (p) {
+      return '<option value="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) +
+        (p.role ? ' - ' + escapeHtml(p.role) : '') + '</option>';
     }).join("");
+  }
+  // Same roster, but a task's creator is never "Unassigned" - either the person
+  // is known or it is left unspecified.
+  function fillCreatedBySelect(select, selected) {
+    select.innerHTML = '<option value="">Not specified</option>' + people.map(function (p) {
+      return '<option value="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) +
+        (p.role ? ' - ' + escapeHtml(p.role) : '') + '</option>';
+    }).join("");
+    select.value = personNames().indexOf(selected) === -1 ? "" : selected;
+  }
+  function personNames() {
+    return people.map(function (p) { return p.name; });
   }
 
   function openEditModal(task) {
@@ -640,7 +680,7 @@
     document.getElementById("e-location").value = task.location;
     editDaySelect.value = dayKeyFromDate(task.day) || "";
     document.getElementById("e-priority").value = task.priority;
-    editAssigneeSelect.value = STAFF.indexOf(task.assignee) === -1 ? "" : task.assignee;
+    editAssigneeSelect.value = personNames().indexOf(task.assignee) === -1 ? "" : task.assignee;
     editModal.classList.add("open");
     document.getElementById("e-title").focus();
   }
@@ -735,6 +775,7 @@
     }).join("");
   daySelect.value = todayKey;
   const composerAssignee = document.getElementById("f-assignee");
+  const composerCreatedBy = document.getElementById("f-created-by");
 
   const composer = document.getElementById("composer");
   document.getElementById("composerToggle").addEventListener("click", function () {
@@ -784,6 +825,9 @@
     const newDate = dayKey ? dayDate[dayKey] : UNASSIGNED_DATE;
     const priority = document.getElementById("f-priority").value;
     const assignee = composerAssignee.value;
+    // Defaults to whoever is signed in, but can be set explicitly for a task
+    // logged on someone else's behalf.
+    const createdBy = composerCreatedBy.value || currentUser || "";
     // A weekly repeat needs a weekday to repeat on, so an unscheduled task can
     // never be recurring.
     const isRecurring = document.getElementById("f-recurring").checked && !!dayKey;
@@ -794,7 +838,8 @@
         location: location,
         day: dayKey,
         priority: priority,
-        assignee: assignee
+        assignee: assignee,
+        createdBy: createdBy
       };
       if (!saveRecurringTasks(recurringTasks.concat(recurringTask))) return;
     }
@@ -805,21 +850,25 @@
       day: newDate,
       priority: priority,
       assignee: assignee,
+      createdBy: createdBy,
       done: false,
       photo: pendingPhoto,
       moved: null,
       recurring: isRecurring,
       recurringId: isRecurring ? recurringTasks[recurringTasks.length - 1].id : null
     });
-    logActivity(newDate
-      ? "Added \"" + title + "\" to " + dateLabel(newDate) + (assignee ? " - assigned to " + assignee : "")
-      : "Added \"" + title + "\" to Unscheduled" + (assignee ? " - assigned to " + assignee : ""));
+    logActivity("Added \"" + title + "\"" +
+      (newDate ? " to " + dateLabel(newDate) : " to Unscheduled") +
+      (createdBy ? " (by " + createdBy + ")" : "") +
+      (assignee ? " - assigned to " + assignee : ""));
     toast(isRecurring ? "Weekly task added and saved"
       : newDate ? "Task added to the board" : "Task parked in Unscheduled");
     document.getElementById("f-title").value = "";
     document.getElementById("f-location").value = "";
     document.getElementById("f-priority").value = "medium";
     composerAssignee.value = "";
+    // Reset the creator back to the signed-in user, not to blank.
+    fillCreatedBySelect(composerCreatedBy, currentUser);
     document.getElementById("f-recurring").checked = false;
     daySelect.value = todayKey;
     resetPhotoField();
@@ -1054,6 +1103,147 @@
     input.focus();
   });
 
+  /* ---------------- People ---------------- */
+  // The roster behind "Assign to" and "Created by". It lives on the server, so a
+  // name added here is immediately available on every device.
+  function initialsOf(name) {
+    return String(name).split(/\s+/).filter(Boolean).slice(0, 2)
+      .map(function (w) { return w[0]; }).join("").toUpperCase() || "?";
+  }
+  function openTaskCount(name) {
+    return tasks.filter(function (t) { return t.assignee === name && !t.done; }).length;
+  }
+  function isAdmin(name) {
+    const person = people.find(function (p) { return p.name === name; });
+    return !!person && /lead|manager|supervisor/i.test(person.role || "");
+  }
+
+  function renderPeople() {
+    const list = document.getElementById("peopleList");
+    if (!list) return;
+    document.getElementById("navPeopleCount").textContent = people.length;
+    document.getElementById("peopleSummary").textContent = people.length === 0
+      ? "No one on the roster yet"
+      : people.length + (people.length === 1 ? " person" : " people") + " can be assigned tasks";
+
+    if (people.length === 0) {
+      list.innerHTML = '<p class="people-empty">Add the caretakers and contractors you assign work to. ' +
+        'They will then appear in the Assign to and Created by lists.</p>';
+      return;
+    }
+
+    list.innerHTML = people.map(function (p) {
+      const open = openTaskCount(p.name);
+      const isCurrent = p.name === currentUser;
+      return '<div class="person-row" data-id="' + escapeHtml(p.id) + '" data-name="' + escapeHtml(p.name) + '">' +
+        '<span class="person-avatar" aria-hidden="true">' + escapeHtml(initialsOf(p.name)) + '</span>' +
+        '<div class="person-body">' +
+        '<div class="person-name">' + escapeHtml(p.name) +
+        (isCurrent ? '<span class="person-me">You</span>' : '') +
+        (isAdmin(p.name) ? '<span class="person-admin" title="Can approve task removal">Admin</span>' : '') +
+        '</div>' +
+        '<div class="person-meta">' + (p.role ? escapeHtml(p.role) + ' · ' : '') +
+        open + ' open task' + (open === 1 ? '' : 's') + '</div>' +
+        '</div>' +
+        '<div class="person-actions">' +
+        '<button type="button" class="btn btn-ghost btn-sm act-assign-me" ' + (isCurrent ? 'disabled' : '') +
+        'title="Work as this person">Work as</button>' +
+        '<button type="button" class="person-remove" data-name="' + escapeHtml(p.name) + '" ' +
+        'aria-label="Remove ' + escapeHtml(p.name) + '" title="Remove from roster">' +
+        '<svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>' +
+        '</button>' +
+        '</div>' +
+        '</div>';
+    }).join("");
+
+    list.querySelectorAll(".act-assign-me").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        setCurrentUser(btn.closest(".person-row").dataset.name);
+      });
+    });
+    list.querySelectorAll(".person-remove").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        removePerson(btn.dataset.name);
+      });
+    });
+  }
+
+  function removePerson(name) {
+    const person = people.find(function (p) { return p.name === name; });
+    if (!person) return;
+    const assigned = tasks.filter(function (t) { return t.assignee === name; }).length;
+    people = people.filter(function (p) { return p.name !== name; });
+    if (currentUser === name) setCurrentUser(people.length ? people[0].name : "");
+    logActivity("Removed " + name + " from the roster" +
+      (assigned ? " - their " + assigned + " task" + (assigned === 1 ? "" : "s") + " keep the name" : ""));
+    toast(assigned
+      ? name + " removed. Their existing tasks keep the name."
+      : name + " removed from the roster");
+    markSaving();
+    refreshPeopleSelects();
+    renderPeople();
+    renderAll();
+    renderComplaints();
+    renderShopping();
+  }
+
+  // Keep every roster-driven dropdown in step after the list changes.
+  // `creatorFollowsUser` is set when the signed-in user changed, so the composer
+  // adopts them as the default creator; otherwise a hand-picked creator is kept.
+  function refreshPeopleSelects(creatorFollowsUser) {
+    fillStaffSelect(composerAssignee);
+    const createdBySelect = document.getElementById("f-created-by");
+    const creator = !creatorFollowsUser && personNames().indexOf(createdBySelect.value) !== -1
+      ? createdBySelect.value
+      : currentUser;
+    fillCreatedBySelect(createdBySelect, creator);
+    fillStaffSelect(editAssigneeSelect);
+    document.getElementById("currentUserSelect").innerHTML = people.map(function (p) {
+      return '<option value="' + escapeHtml(p.name) + '">' + escapeHtml(p.name) + '</option>';
+    }).join("");
+    document.getElementById("currentUserSelect").value = currentUser;
+    const person = people.find(function (p) { return p.name === currentUser; });
+    document.getElementById("userAvatar").textContent = initialsOf(currentUser || "?");
+    document.getElementById("userRole").textContent = person && person.role ? person.role : "Caretaker";
+  }
+
+  function setCurrentUser(name) {
+    currentUser = name;
+    try { localStorage.setItem("sharondaleCurrentUser", name); } catch (e) { /* optional */ }
+    // The composer's "Created by" follows whoever is now signed in.
+    refreshPeopleSelects(true);
+    renderPeople();
+    toast("Now working as " + name);
+  }
+
+  const peopleForm = document.getElementById("peopleForm");
+  peopleForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const nameInput = document.getElementById("peopleName");
+    const roleInput = document.getElementById("peopleRole");
+    const name = nameInput.value.trim();
+    const role = roleInput.value.trim();
+    if (!name) return;
+    if (people.some(function (p) { return p.name.toLowerCase() === name.toLowerCase(); })) {
+      toast("\"" + name + "\" is already on the roster");
+      nameInput.select();
+      return;
+    }
+    people.push({ id: "p-" + Date.now().toString(36) + "-" + peopleUid++, name: name, role: role });
+    logActivity("Added " + name + (role ? " (" + role + ")" : "") + " to the roster");
+    toast(name + " can now be assigned tasks");
+    nameInput.value = "";
+    roleInput.value = "";
+    markSaving();
+    refreshPeopleSelects();
+    renderPeople();
+    nameInput.focus();
+  });
+
+  document.getElementById("currentUserSelect").addEventListener("change", function (e) {
+    setCurrentUser(e.target.value);
+  });
+
   /* ---------------- Weekly report modal ---------------- */
   const reportModal = document.getElementById("reportModal");
   function openReport() {
@@ -1131,6 +1321,14 @@
     renderAll();
     renderComplaints();
     renderShopping();
+    renderPeople();
+
+    // Whoever used this browser last stays selected; it is a convenience, not
+    // shared state, so it is kept locally rather than on the server.
+    try {
+      const remembered = localStorage.getItem("sharondaleCurrentUser");
+      if (remembered) currentUser = remembered;
+    } catch (e) { /* optional */ }
 
     loadBoardData().then(function (board) {
       if (board) {
@@ -1141,11 +1339,16 @@
         shopping.length = 0;
         board.shopping.forEach(function (i) { shopping.push(i); });
         recurringTasks = board.recurring || [];
+        people = board.people || [];
         applyRecurringTasks();
         logActivity(serverReachable
           ? "Board loaded from the server"
           : "Board loaded from the offline copy");
       }
+      if (!people.some(function (p) { return p.name === currentUser; })) {
+        currentUser = people.length ? people[0].name : "";
+      }
+      refreshPeopleSelects();
       // Seed the server on a first ever run so a new deployment is not empty.
       if (serverReachable && tasks.length === 0 && complaints.length === 0 && shopping.length === 0) {
         saveBoardData();
@@ -1153,6 +1356,7 @@
       renderAll();
       renderComplaints();
       renderShopping();
+      renderPeople();
       setSaveState(serverReachable ? "saved" : "offline");
       watchForOtherDevices();
     });
@@ -1165,6 +1369,13 @@
     if (typeof EventSource === "undefined") return;
     try {
       const stream = new EventSource(API_BASE + "/events");
+      // An open SSE stream keeps the browser's load/network-idle state busy, so
+      // close it on unload and when the tab is hidden. Without this a reload has
+      // to wait on the old socket and the dashboard can appear to hang.
+      window.addEventListener("beforeunload", function () { stream.close(); });
+      document.addEventListener("visibilitychange", function () {
+        if (document.visibilityState === "hidden") stream.close();
+      });
       stream.addEventListener("board", function () {
         // Ignore our own writes: they are already on screen and mid-edit state
         // would otherwise be thrown away under the caretaker.
@@ -1183,6 +1394,9 @@
             (board.shopping || []).filter(isValidShoppingItem)
               .forEach(function (i) { shopping.push(i); });
             recurringTasks = board.recurring || [];
+            people = board.people || people;
+            refreshPeopleSelects();
+            renderPeople();
             applyRecurringTasks();
             renderAll();
             renderComplaints();

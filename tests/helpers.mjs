@@ -52,6 +52,12 @@ export async function resetBoard(page, { reload = true } = {}) {
         { id: 3, label: "QA WD-40 spray", qty: 1, addedBy: "Elena Ruiz" },
       ],
       recurring: [],
+      people: [
+        { id: "qa-p1", name: "Marco Conti", role: "Lead caretaker" },
+        { id: "qa-p2", name: "Elena Ruiz", role: "Grounds" },
+        { id: "qa-p3", name: "Tomas Brandt", role: "Maintenance" },
+        { id: "qa-p4", name: "Priya Nair", role: "Cleaning" },
+      ],
     };
 
     await fetch("/api/board", {
@@ -62,9 +68,21 @@ export async function resetBoard(page, { reload = true } = {}) {
   });
 
   if (reload) {
-    await page.reload({ waitUntil: "domcontentloaded" });
-    // Booting now fetches from the server, so wait for the board to render.
-    await page.waitForTimeout(1200);
+    // Re-navigate rather than calling reload(): a fresh navigation discards the
+    // previous document outright, including its server-sent-events socket. A
+    // reload can leave that socket in flight, which stops the load event from
+    // settling and stalls the whole suite.
+    await page.goto(page.url(), { waitUntil: "domcontentloaded" });
+    // Booting now fetches from the server, so wait until the board and roster
+    // have actually rendered rather than guessing at a delay: otherwise a suite
+    // can interact mid-load and the re-render will undo it.
+    await page.waitForFunction(
+      () => document.querySelectorAll("#boardBody .task-card").length > 0 &&
+            document.querySelectorAll("#peopleList .person-row").length > 0,
+      null,
+      { timeout: 20000 }
+    );
+    await page.waitForTimeout(300);
   }
 }
 
