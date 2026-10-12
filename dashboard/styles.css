@@ -376,6 +376,8 @@
   }
   .save-state.saving{color:var(--amber-dark); background:var(--amber-pale); border-color:rgba(180,130,40,0.2);}
   .save-state.saving::before{background:var(--amber);}
+  .save-state.offline{color:var(--amber-dark); background:var(--amber-pale); border-color:rgba(180,130,40,0.24);}
+  .save-state.offline::before{background:var(--amber);}
   .save-state.error{color:var(--coral); background:#F7E7E3; border-color:rgba(190,80,60,0.24);}
   .save-state.error::before{background:var(--coral);}
 

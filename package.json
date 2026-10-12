@@ -1,0 +1,15 @@
+{
+  "name": "sharondale-complex",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sharondale Complex caretaker operations dashboard",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "serve": "node tests/serve.mjs",
+    "test:api": "node tests/api.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

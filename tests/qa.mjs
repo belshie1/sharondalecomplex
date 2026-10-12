@@ -3,11 +3,14 @@
  *
  * Run against a locally-served copy of the dashboard:
  *
+ * The dashboard is server-backed, so this resets the board first: it asserts on
+ * specific rows and would otherwise inherit state from an earlier run.
+ *
  *   1. Serve the project root on a static server, e.g.
- *        node tests/serve.mjs
+ *        npm start            (the backend, which also serves the dashboard)
  *   2. Run this script through the browser-automation skill's runner:
  *        node <browser-automation-skill-dir>/browser.mjs \
- *          http://localhost:8123/dashboard/index.html --script ./tests/qa.mjs
+ *          http://localhost:3000/ --script ./tests/qa.mjs
  *
  * The runner navigates to the URL first, then calls this function with
  * (page, ui): `page` is a Playwright Page, `ui` is the ref helper
@@ -15,12 +18,15 @@
  *
  * The returned object is printed as JSON; each key is a named assertion.
  */
+import { resetBoard } from "./helpers.mjs";
+
 export default async function run(page, ui) {
   const results = {};
+  await resetBoard(page);
 
   // 1. Weekly report modal opens and reports live counts
   await ui.click((await ui.snapshot()).match(/(@e\d+) button "Weekly report"/)[1]);
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(400);
   results.modalOpen = await page.locator("#reportModal").evaluate(el => el.classList.contains("open"));
   results.rTotal = await page.locator("#rTotal").innerText();
   results.rOpenIssues = await page.locator("#rOpenIssues").innerText();
@@ -33,24 +39,31 @@ export default async function run(page, ui) {
   // 3. Clicking a task card toggles its completion state
   const beforeDone = await page.evaluate(() => document.querySelectorAll(".task-card.done").length);
   await page.locator(".task-card").first().click();
-  await page.waitForTimeout(200);
+  await page.waitForTimeout(400);
   const afterDone = await page.evaluate(() => document.querySelectorAll(".task-card.done").length);
   results.toggleWorks = beforeDone !== afterDone;
 
   // 4. Task removal requires the password and preserves the task on cancel
+  // Re-query the card: the toggle above re-rendered the board, so an earlier
+  // handle would point at a detached node.
   const removableTask = page.locator(".task-card").first();
   const removableTaskId = await removableTask.getAttribute("data-id");
   const taskAfterRemoval = page.locator('.task-card[data-id="' + removableTaskId + '"]');
-  await removableTask.locator(".task-delete").click();
+  await page.locator('.task-card[data-id="' + removableTaskId + '"] .task-delete').click();
+  await page.locator("#deletePassword").waitFor({ state: "visible", timeout: 5000 });
   await page.locator("#deletePassword").fill("0000");
   await page.locator("#deleteForm button[type=submit]").click();
+  await page.waitForTimeout(300);
   results.wrongPasswordBlocked = (await taskAfterRemoval.count()) === 1 &&
     (await page.locator("#deleteError").innerText()).length > 0;
   await page.locator("#cancelDelete").click();
+  await page.waitForTimeout(200);
   results.cancelPreservesTask = (await taskAfterRemoval.count()) === 1;
-  await taskAfterRemoval.locator(".task-delete").click();
+  await page.locator('.task-card[data-id="' + removableTaskId + '"] .task-delete').click();
+  await page.locator("#deletePassword").waitFor({ state: "visible", timeout: 5000 });
   await page.locator("#deletePassword").fill("5879");
   await page.locator("#deleteForm button[type=submit]").click();
+  await page.waitForTimeout(600);
   results.correctPasswordRemovesTask = (await taskAfterRemoval.count()) === 0;
 
   // 5. Sidebar switches to the complaints view

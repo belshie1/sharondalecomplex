@@ -107,6 +107,12 @@
       return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[m];
     });
   }
+  // Task ids arrive as numbers from the built-in seed data but as strings from
+  // the server ("seed-1"), so every lookup must compare them loosely rather than
+  // coercing the DOM id with Number(), which turns "seed-1" into NaN.
+  function findTask(id) {
+    return tasks.find(function (t) { return String(t.id) === String(id); });
+  }
   function toast(msg) {
     const stack = document.getElementById("toastStack");
     const el = document.createElement("div");
@@ -116,15 +122,26 @@
     setTimeout(function () { el.classList.add("leaving"); setTimeout(function () { el.remove(); }, 260); }, 2800);
   }
   const STORAGE_KEY = "sharondaleBoardData";
-  const RECURRING_TASKS_KEY = "sharondaleRecurringTasks";
   let recurringTasks = [];
 
   // ---- Durable store ----------------------------------------------------
-  // The whole board is kept in localStorage so a task is never lost on
-  // reload. Nothing here is destructive: a parse failure falls back to the
-  // seed data rather than wiping what the caretaker already has.
+  // The board lives in a real backend now, not in this browser. Two layers:
+  //   * the server (server/index.mjs + SQLite) is the source of truth and is
+  //     shared by every device,
+  //   * a localStorage snapshot is kept purely as an offline cache so the
+  //     dashboard still opens and stays usable when the API is unreachable.
+  // Nothing here is destructive: a failed read falls back to the cache, and a
+  // failed write keeps the change locally and retries.
+  const API_BASE = window.SHARONDALE_API || "/api";
+  // Optional write token, supplied by the page before app.js loads when the
+  // backend has SHARONDALE_TOKEN set. Absent locally, required in production.
+  const WRITE_TOKEN = window.SHARONDALE_TOKEN || "";
+  let serverReachable = null; // null = unknown yet
+  let pendingSync = false;    // local changes not yet confirmed by the server
+  let syncTimer = null;
+
   function isValidTask(t) {
-    return t && typeof t.id === "number" &&
+    return t && (typeof t.id === "number" || typeof t.id === "string") &&
       typeof t.title === "string" && typeof t.location === "string" &&
       (t.day === UNASSIGNED_DATE || typeof t.day === "string") &&
       ["low", "medium", "high"].indexOf(t.priority) !== -1 &&
@@ -148,100 +165,153 @@
       recurring: !!t.recurring, recurringId: t.recurringId || null
     };
   }
-  function saveBoardData() {
+  // Serialise what the server expects. Recurring templates travel with the
+  // board so every device re-applies the same weekly tasks.
+  function boardPayload() {
+    return {
+      tasks: tasks,
+      complaints: complaints,
+      shopping: shopping,
+      recurring: recurringTasks
+    };
+  }
+
+  // The offline cache is a convenience only: it lets the dashboard open and
+  // stay usable when the API cannot be reached. It is never the source of truth.
+  function writeCache() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        version: 1,
-        tasks: tasks,
-        complaints: complaints,
-        shopping: shopping
-      }));
-      setSaveState("saved");
-      return true;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, cachedAt: Date.now(), ...boardPayload() }));
     } catch (error) {
-      setSaveState("error");
-      toast("Could not save your board: " + error.message);
-      return false;
+      /* a full or disabled localStorage must not break saving to the server */
     }
   }
-  function loadBoardData() {
+  function readCache() {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved === null) return null;
-      const parsed = JSON.parse(saved);
-      if (!parsed || !Array.isArray(parsed.tasks) || !Array.isArray(parsed.complaints)) {
-        throw new Error("Saved board has an unexpected shape.");
-      }
-      return {
-        tasks: parsed.tasks.filter(isValidTask).map(normalizeTask),
-        complaints: parsed.complaints.filter(isValidComplaint),
-        // Older saves predate the shopping list, so its absence is not an error.
-        shopping: Array.isArray(parsed.shopping)
-          ? parsed.shopping.filter(isValidShoppingItem)
-          : null
-      };
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.tasks)) return null;
+      return parsed;
     } catch (error) {
-      toast("Could not read your saved board: " + error.message);
       return null;
     }
   }
-  function loadRecurringTasks() {
+
+  function api(path, options) {
+    const opts = options || {};
+    const headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+    if (WRITE_TOKEN) headers["X-Sharondale-Token"] = WRITE_TOKEN;
+    return fetch(API_BASE + path, Object.assign({}, opts, { headers }));
+  }
+
+  // Push the whole board to the server. The dashboard treats the task list as a
+  // unit, so a single whole-board write cannot half-apply a drag or a tick.
+  async function saveBoardData() {
+    writeCache();
+    setSaveState("saving");
     try {
-      const saved = localStorage.getItem(RECURRING_TASKS_KEY);
-      if (saved === null) return [];
-      const parsed = JSON.parse(saved);
-      if (!Array.isArray(parsed) || parsed.some(function (task) {
-        return !task || typeof task.id !== "string" ||
-          typeof task.title !== "string" || typeof task.location !== "string" ||
-          DAY_KEYS.indexOf(task.day) === -1 ||
-          ["low", "medium", "high"].indexOf(task.priority) === -1;
-      })) {
-        throw new Error("Saved weekly tasks have an invalid format.");
+      const res = await api("/board", {
+        method: "PUT",
+        body: JSON.stringify(boardPayload())
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(function () { return {}; });
+        throw new Error(detail.error || ("HTTP " + res.status));
       }
-      return parsed;
+      serverReachable = true;
+      pendingSync = false;
+      setSaveState("saved");
+      return true;
     } catch (error) {
-      toast("Could not load weekly tasks: " + error.message);
-      return [];
+      // Keep the change (it is already in the cache) and retry shortly rather
+      // than telling the caretaker their work was lost.
+      serverReachable = false;
+      pendingSync = true;
+      setSaveState("offline");
+      scheduleRetry();
+      return false;
+    }
+  }
+
+  function scheduleRetry() {
+    if (syncTimer) return;
+    syncTimer = setTimeout(function () {
+      syncTimer = null;
+      if (pendingSync) syncNow();
+    }, 5000);
+  }
+
+  async function syncNow() {
+    const ok = await saveBoardData();
+    if (ok && pendingSync === false) renderSyncBanner();
+    return ok;
+  }
+
+  async function loadBoardData() {
+    try {
+      const res = await api("/board", { method: "GET" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const board = await res.json();
+      serverReachable = true;
+      pendingSync = false;
+      return {
+        tasks: (board.tasks || []).filter(isValidTask).map(normalizeTask),
+        complaints: (board.complaints || []).filter(isValidComplaint),
+        shopping: (board.shopping || []).filter(isValidShoppingItem),
+        recurring: board.recurring || []
+      };
+    } catch (error) {
+      serverReachable = false;
+      // Fall back to the offline cache so the dashboard still opens.
+      const cached = readCache();
+      if (!cached) {
+        toast("Cannot reach the server and no offline copy exists: " + error.message);
+        return null;
+      }
+      toast("Working offline - showing the last saved copy");
+      return {
+        tasks: (cached.tasks || []).filter(isValidTask).map(normalizeTask),
+        complaints: (cached.complaints || []).filter(isValidComplaint),
+        shopping: (cached.shopping || []).filter(isValidShoppingItem),
+        recurring: cached.recurring || []
+      };
     }
   }
   function saveRecurringTasks(updatedTasks) {
     try {
-      localStorage.setItem(RECURRING_TASKS_KEY, JSON.stringify(updatedTasks));
       recurringTasks = updatedTasks;
+      // Recurring templates travel with the board, so a single whole-board
+      // write persists them; no separate request is needed.
+      saveBoardData();
       return true;
     } catch (error) {
       toast("Could not save weekly task: " + error.message);
       return false;
     }
   }
-  recurringTasks = loadRecurringTasks();
-  recurringTasks.forEach(function (task) {
-    tasks.push({
-      id: uid++,
-      title: task.title,
-      location: task.location,
-      day: task.day,
-      priority: task.priority,
-      assignee: typeof task.assignee === "string" ? task.assignee : UNASSIGNED,
-      done: false,
-      photo: null,
-      moved: null,
-      recurring: true,
-      recurringId: task.id
+
+  // Apply the server's recurring templates as fresh tasks for this week. They
+  // are ephemeral (never stored as ordinary tasks) so each week starts clean.
+  function applyRecurringTasks() {
+    recurringTasks.forEach(function (task) {
+      const exists = tasks.some(function (t) {
+        return t.recurring && t.recurringId === task.id && t.day === dayDate[task.day];
+      });
+      if (exists) return;
+      tasks.push({
+        id: uid++,
+        title: task.title,
+        location: task.location,
+        day: dayDate[task.day] || UNASSIGNED_DATE,
+        priority: task.priority,
+        assignee: typeof task.assignee === "string" ? task.assignee : UNASSIGNED,
+        done: false,
+        photo: null,
+        moved: null,
+        recurring: true,
+        recurringId: task.id
+      });
     });
-  });
-  // Restore the saved board over the seed data. Recurring templates are
-  // re-applied above on every load, so they are excluded from the snapshot.
-  const savedBoard = loadBoardData();
-  if (savedBoard) {
-    tasks.length = 0;
-    savedBoard.tasks.forEach(function (t) { tasks.push(t); });
-    complaints.length = 0;
-    savedBoard.complaints.forEach(function (c) { complaints.push(c); });
-    if (savedBoard.shopping) {
-      shopping.length = 0;
-      savedBoard.shopping.forEach(function (i) { shopping.push(i); });
-    }
   }
   function timeNow() {
     const d = new Date();
@@ -254,13 +324,20 @@
     const el = document.getElementById("saveState");
     if (!el) return;
     el.classList.toggle("saving", state === "saving");
+    el.classList.toggle("offline", state === "offline");
     el.classList.toggle("error", state === "error");
-    el.textContent = state === "error" ? "Could not save" : "Saved";
+    el.textContent =
+      state === "offline" ? "Offline - will retry" :
+      state === "error" ? "Could not save" : "Saved";
+    el.title =
+      state === "offline" ? "The server is unreachable. Your change is kept here and will be sent when it comes back." :
+      state === "error" ? "The board could not be saved." :
+      "Your board is saved on the server and shared with every device.";
   }
   // Persist on every meaningful interaction, and once more if the tab is
   // closed mid-change so nothing is lost.
   function markSaving() { setSaveState("saving"); saveBoardData(); }
-  window.addEventListener("beforeunload", function () { saveBoardData(); });
+  window.addEventListener("beforeunload", function () { writeCache(); });
   function logActivity(text) {
     activityLog.unshift({ text: text, time: timeNow() });
     activityLog = activityLog.slice(0, 12);
@@ -408,7 +485,7 @@
   function attachCardEvents() {
     document.querySelectorAll(".task-card").forEach(function (card) {
       card.addEventListener("dragstart", function (e) {
-        dragId = Number(card.dataset.id);
+        dragId = card.dataset.id;
         dragMoved = false;
         card.classList.add("dragging");
         e.dataTransfer.effectAllowed = "move";
@@ -418,7 +495,7 @@
       });
       card.addEventListener("click", function (e) {
         if (dragMoved || e.target.closest(".task-delete") || e.target.closest(".task-edit")) return;
-        const t = tasks.find(function (x) { return x.id === Number(card.dataset.id); });
+        const t = findTask(card.dataset.id);
         if (!t) return;
         t.done = !t.done;
         logActivity((t.done ? "Completed" : "Reopened") + " \"" + t.title + "\"");
@@ -434,12 +511,12 @@
       });
       card.querySelector(".task-edit").addEventListener("click", function (e) {
         e.stopPropagation();
-        const task = tasks.find(function (x) { return x.id === Number(card.dataset.id); });
+        const task = findTask(card.dataset.id);
         if (task) openEditModal(task);
       });
       card.querySelector(".task-delete").addEventListener("click", function (e) {
         e.stopPropagation();
-        const task = tasks.find(function (x) { return x.id === Number(card.dataset.id); });
+        const task = findTask(card.dataset.id);
         if (task) requestTaskRemoval(task);
       });
     });
@@ -450,7 +527,7 @@
   function attachBacklogEvents() {
     document.querySelectorAll(".backlog-item").forEach(function (item) {
       item.addEventListener("dragstart", function (e) {
-        dragId = Number(item.dataset.id);
+        dragId = item.dataset.id;
         dragMoved = false;
         item.classList.add("dragging");
         e.dataTransfer.effectAllowed = "move";
@@ -458,9 +535,9 @@
       item.addEventListener("dragend", function () {
         item.classList.remove("dragging");
       });
-      // Keyboard/touch fallback: focus an item, press Enter, then a day.
+      // Keyboard/touch fallback: open the item for editing.
       item.addEventListener("click", function () {
-        const t = tasks.find(function (x) { return x.id === Number(item.dataset.id); });
+        const t = findTask(item.dataset.id);
         if (t) openEditModal(t);
       });
       item.addEventListener("keydown", function (e) {
@@ -632,7 +709,7 @@
         e.preventDefault();
         col.classList.remove("drag-over");
         dragMoved = true;
-        const t = tasks.find(function (x) { return x.id === dragId; });
+        const t = findTask(dragId);
         const newDate = col.dataset.day;
         if (t && t.day !== newDate) {
           const wasDate = t.day;
@@ -771,7 +848,7 @@
     e.preventDefault();
     backlogList.classList.remove("drag-over");
     dragMoved = true;
-    const t = tasks.find(function (x) { return x.id === dragId; });
+    const t = findTask(dragId);
     if (t && t.day) {
       const wasDate = t.day;
       t.day = UNASSIGNED_DATE;
@@ -910,18 +987,18 @@
 
     list.querySelectorAll(".shopping-check input").forEach(function (box) {
       box.addEventListener("change", function () {
-        tickOffShoppingItem(Number(box.dataset.id));
+        tickOffShoppingItem(box.dataset.id);
       });
     });
     list.querySelectorAll(".shopping-remove").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        removeShoppingItem(Number(btn.dataset.id));
+        removeShoppingItem(btn.dataset.id);
       });
     });
   }
 
   function shoppingIndex(id) {
-    return shopping.findIndex(function (item) { return item.id === id; });
+    return shopping.findIndex(function (item) { return String(item.id) === String(id); });
   }
 
   function tickOffShoppingItem(id) {
@@ -1044,11 +1121,80 @@
   });
 
   /* ---------------- Init ---------------- */
-  fillStaffSelect(composerAssignee);
-  logActivity("Shift started - board synced");
-  setSaveState("saved");
-  renderAll();
-  renderComplaints();
-  renderShopping();
-  saveBoardData();
+  // The board now comes from the server, so booting is asynchronous: render
+  // the shell immediately, then swap in whatever the backend holds. While the
+  // fetch is in flight the seeded demo data is on screen rather than a blank
+  // page, and if the API is unreachable the offline cache takes over.
+  function start() {
+    fillStaffSelect(composerAssignee);
+    logActivity("Shift started - connecting to the server");
+    renderAll();
+    renderComplaints();
+    renderShopping();
+
+    loadBoardData().then(function (board) {
+      if (board) {
+        tasks.length = 0;
+        board.tasks.forEach(function (t) { tasks.push(t); });
+        complaints.length = 0;
+        board.complaints.forEach(function (c) { complaints.push(c); });
+        shopping.length = 0;
+        board.shopping.forEach(function (i) { shopping.push(i); });
+        recurringTasks = board.recurring || [];
+        applyRecurringTasks();
+        logActivity(serverReachable
+          ? "Board loaded from the server"
+          : "Board loaded from the offline copy");
+      }
+      // Seed the server on a first ever run so a new deployment is not empty.
+      if (serverReachable && tasks.length === 0 && complaints.length === 0 && shopping.length === 0) {
+        saveBoardData();
+      }
+      renderAll();
+      renderComplaints();
+      renderShopping();
+      setSaveState(serverReachable ? "saved" : "offline");
+      watchForOtherDevices();
+    });
+  }
+
+  // Live sync: the backend pushes an event whenever any device writes, so a
+  // change made on one machine appears on the others without a manual reload.
+  // Not supported everywhere, so failure here is silent and harmless.
+  function watchForOtherDevices() {
+    if (typeof EventSource === "undefined") return;
+    try {
+      const stream = new EventSource(API_BASE + "/events");
+      stream.addEventListener("board", function () {
+        // Ignore our own writes: they are already on screen and mid-edit state
+        // would otherwise be thrown away under the caretaker.
+        if (pendingSync || saveState === "saving") return;
+        api("/board", { method: "GET" })
+          .then(function (res) { return res.ok ? res.json() : null; })
+          .then(function (board) {
+            if (!board) return;
+            tasks.length = 0;
+            (board.tasks || []).filter(isValidTask).map(normalizeTask)
+              .forEach(function (t) { tasks.push(t); });
+            complaints.length = 0;
+            (board.complaints || []).filter(isValidComplaint)
+              .forEach(function (c) { complaints.push(c); });
+            shopping.length = 0;
+            (board.shopping || []).filter(isValidShoppingItem)
+              .forEach(function (i) { shopping.push(i); });
+            recurringTasks = board.recurring || [];
+            applyRecurringTasks();
+            renderAll();
+            renderComplaints();
+            renderShopping();
+          })
+          .catch(function () { /* transient; the next event will resync */ });
+      });
+      stream.onerror = function () { /* EventSource retries on its own */ };
+    } catch (error) {
+      /* live sync is a bonus, not a requirement */
+    }
+  }
+
+  start();
 })();

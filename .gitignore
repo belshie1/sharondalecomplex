@@ -11,3 +11,13 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# The live database: real caretaker data must never be committed
+/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Environment files may hold the write token
+.env
+.env.local
