@@ -21,6 +21,7 @@ Open `dashboard/index.html` in a modern browser, or serve the project directory 
 - Create a task directly from a complaint
 - Close complaints with a recorded action
 - Review and download a weekly report
+- Keep a shopping list of supplies: add items with a quantity, and ticking one off removes it from the list
 
 ## Project files
 
@@ -32,12 +33,14 @@ Open `dashboard/index.html` in a modern browser, or serve the project directory 
 - `tests/qa.mjs` - browser QA script covering the board, password-protected task removal, complaints, and report
 - `tests/qa-edit-assign.mjs` - browser QA script covering task editing, reassignment, and the assignee selector
 - `tests/qa-backlog.mjs` - browser QA script covering the unscheduled list, drag-to-schedule, and reload persistence
+- `tests/qa-shopping.mjs` - browser QA script covering the shopping list, tick-to-remove, and reload persistence
 
 ## How your data is saved
 
 The dashboard is fully client-side, so it has no server to sync to. Everything you
-enter — tasks, assignments, completion state, the unscheduled list, and complaints
-— is saved in your **browser's local storage** under the `sharondaleBoardData` key
+enter — tasks, assignments, completion state, the unscheduled list, complaints,
+and the shopping list — is saved in your **browser's local storage** under the
+`sharondaleBoardData` key
 on every change. A "Saved" chip in the header confirms the write, and turns amber
 while saving or red if the browser refuses the write (for example in private
 browsing, where storage is limited).

@@ -650,6 +650,106 @@
     box-shadow:var(--shadow-sm);
     overflow:hidden;
   }
+
+  /* ---- Shopping list ---- */
+  .shopping-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-sm);
+    padding:20px 22px;
+    max-width:760px;
+  }
+  .shopping-add{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 76px auto;
+    gap:10px;
+    margin-bottom:18px;
+  }
+  .shopping-add input,
+  .shopping-add select{
+    border:1px solid var(--line);
+    background:#FEFCF6;
+    border-radius:9px;
+    padding:10px 12px;
+    font:inherit;
+    font-size:13px;
+    color:var(--ink);
+    width:100%;
+    min-width:0;
+  }
+  .shopping-add input:focus,
+  .shopping-add select:focus{border-color:var(--forest); outline:none;}
+  .shopping-list{display:flex; flex-direction:column; gap:8px;}
+  .shopping-item{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    background:var(--canvas);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:12px 12px 12px 14px;
+    transition:opacity 0.24s ease, transform 0.24s ease, background 0.2s ease;
+  }
+  /* Ticking an item animates it out; JS then removes it from the list. */
+  .shopping-item.checked{
+    opacity:0;
+    transform:translateX(12px);
+    background:var(--forest-pale);
+  }
+  .shopping-check{
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; flex:0 0 auto; margin:0;
+    width:22px; height:22px;
+  }
+  /* Keep the real checkbox in the accessibility tree and focusable, but let the
+     styled box in the label be what is seen and clicked. A zero-sized input is
+     not clickable, so it is offset out of view instead. */
+  .shopping-check input{
+    position:absolute; width:1px; height:1px;
+    opacity:0; margin:-1px; overflow:hidden; clip-path:inset(50%);
+  }
+  .shopping-box{
+    width:22px; height:22px; border-radius:6px;
+    border:2px solid var(--forest); background:#fff;
+    display:flex; align-items:center; justify-content:center;
+    transition:background 0.15s ease, border-color 0.15s ease;
+  }
+  .shopping-box .icon{
+    width:14px; height:14px; stroke:#fff; opacity:0;
+    transition:opacity 0.15s ease;
+  }
+  .shopping-check input:checked + .shopping-box{background:var(--forest);}
+  .shopping-check input:checked + .shopping-box .icon{opacity:1;}
+  .shopping-check input:focus-visible + .shopping-box{
+    outline:2px solid var(--forest); outline-offset:2px;
+  }
+  .shopping-body{min-width:0; flex:1;}
+  .shopping-label{font-size:13.5px; font-weight:600; line-height:1.35; overflow-wrap:anywhere;}
+  .shopping-meta{
+    display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    font-size:11px; color:var(--muted); margin-top:3px;
+  }
+  .shopping-qty{
+    font-weight:700; color:var(--forest);
+    background:var(--forest-pale); padding:1px 7px; border-radius:10px;
+  }
+  .shopping-remove{
+    flex:0 0 auto;
+    display:flex; align-items:center; justify-content:center;
+    width:30px; height:30px; padding:0; border:0; border-radius:7px;
+    background:transparent; color:var(--muted); cursor:pointer;
+  }
+  .shopping-remove:hover{background:#F4E2DE; color:#873C32;}
+  .shopping-remove .icon{width:15px; height:15px;}
+  .shopping-empty{
+    display:flex; align-items:center; gap:10px;
+    font-size:13px; color:var(--muted);
+    padding:22px 6px; justify-content:center; text-align:center;
+  }
+  .shopping-empty .icon{width:18px; height:18px; stroke:var(--forest);}
+  .shopping-foot{margin-top:14px;}
+  .shopping-note{font-size:11.5px; color:var(--muted);}
   .complaints-head{
     display:grid;
     grid-template-columns:1.6fr 0.8fr 1fr 0.8fr 1.4fr;

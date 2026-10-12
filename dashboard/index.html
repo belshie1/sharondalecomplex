@@ -31,6 +31,11 @@
         Complaints &amp; reports
         <span class="count" id="navComplaintCount">0</span>
       </button>
+      <button class="nav-item" data-view="shopping">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M4 5h2l2 10h10l2-7H7"/><circle cx="9" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/></svg>
+        Shopping list
+        <span class="count" id="navShoppingCount">0</span>
+      </button>
       <button class="nav-item" id="weeklyReportNav">
         <svg class="icon" viewBox="0 0 24 24"><path d="M5 3.5h14v17H5z"/><path d="M9 8.5h6M9 12h6M9 15.5h3.5"/></svg>
         Weekly report
@@ -254,6 +259,41 @@
           <span>Actions</span>
         </div>
         <div id="complaintsList"></div>
+      </div>
+    </section>
+
+    <!-- ===================== SHOPPING LIST VIEW ===================== -->
+    <section class="view" id="view-shopping">
+      <div class="page-head">
+        <div>
+          <h1>Shopping list</h1>
+          <p class="range" id="shoppingSummary">Supplies to pick up for the complex</p>
+        </div>
+      </div>
+
+      <div class="shopping-card">
+        <form class="shopping-add" id="shoppingForm">
+          <input type="text" id="shoppingInput" placeholder="Add an item, e.g. Bin liners" autocomplete="off" required>
+          <select id="shoppingQty" aria-label="Quantity">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="10">10</option>
+          </select>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Add item
+          </button>
+        </form>
+
+        <div class="shopping-list" id="shoppingList"></div>
+
+        <div class="shopping-foot" id="shoppingFoot">
+          <span class="shopping-note" id="shoppingCleared" hidden>Checked-off items are removed from the list.</span>
+        </div>
       </div>
     </section>
 

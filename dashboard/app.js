@@ -91,6 +91,16 @@
     { id: 5, owner: "A. Keller", apt: "Block D - 15", type: "Pest control", age: "6 days", status: "closed", note: "Technician treated unit, follow-up in 2 weeks." },
   ];
 
+  // Shopping list: supplies to pick up for the complex. Ticking an item removes
+  // it, so the list only ever holds things still outstanding.
+  const shopping = [
+    { id: 1, label: "Bin liners (heavy duty)", qty: 2, addedBy: "Marco Conti" },
+    { id: 2, label: "Replacement hallway bulbs", qty: 6, addedBy: "Marco Conti" },
+    { id: 3, label: "WD-40 spray", qty: 1, addedBy: "Elena Ruiz" },
+    { id: 4, label: "Pool chlorine tablets", qty: 3, addedBy: "Tomas Brandt" },
+  ];
+  let shoppingUid = 100;
+
   /* ---------------- Helpers ---------------- */
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, function (m) {
@@ -124,6 +134,10 @@
     return c && typeof c.id === "number" && typeof c.owner === "string" &&
       ["open", "progress", "closed"].indexOf(c.status) !== -1;
   }
+  function isValidShoppingItem(i) {
+    return i && typeof i.id === "number" && typeof i.label === "string" &&
+      i.label.trim().length > 0;
+  }
   function normalizeTask(t) {
     return {
       id: t.id, title: t.title, location: t.location,
@@ -136,7 +150,12 @@
   }
   function saveBoardData() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, tasks: tasks, complaints: complaints }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: 1,
+        tasks: tasks,
+        complaints: complaints,
+        shopping: shopping
+      }));
       setSaveState("saved");
       return true;
     } catch (error) {
@@ -155,7 +174,11 @@
       }
       return {
         tasks: parsed.tasks.filter(isValidTask).map(normalizeTask),
-        complaints: parsed.complaints.filter(isValidComplaint)
+        complaints: parsed.complaints.filter(isValidComplaint),
+        // Older saves predate the shopping list, so its absence is not an error.
+        shopping: Array.isArray(parsed.shopping)
+          ? parsed.shopping.filter(isValidShoppingItem)
+          : null
       };
     } catch (error) {
       toast("Could not read your saved board: " + error.message);
@@ -215,6 +238,10 @@
     savedBoard.tasks.forEach(function (t) { tasks.push(t); });
     complaints.length = 0;
     savedBoard.complaints.forEach(function (c) { complaints.push(c); });
+    if (savedBoard.shopping) {
+      shopping.length = 0;
+      savedBoard.shopping.forEach(function (i) { shopping.push(i); });
+    }
   }
   function timeNow() {
     const d = new Date();
@@ -837,6 +864,119 @@
     });
   }
 
+  /* ---------------- Shopping list ---------------- */
+  // Ticking an item removes it from the list, so what remains is exactly what
+  // still needs buying. Removal is permanent, so it is logged to the activity
+  // feed for a record of what was picked up and by whom.
+  function renderShopping() {
+    const list = document.getElementById("shoppingList");
+    if (!list) return;
+
+    document.getElementById("navShoppingCount").textContent = shopping.length;
+    const summary = document.getElementById("shoppingSummary");
+    summary.textContent = shopping.length === 0
+      ? "Nothing outstanding"
+      : shopping.length + (shopping.length === 1 ? " item" : " items") + " still to pick up";
+
+    if (shopping.length === 0) {
+      list.innerHTML = '<p class="shopping-empty">' +
+        '<svg class="icon" viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7"/></svg>' +
+        '<span>All done. Nothing left on the list.</span></p>';
+      return;
+    }
+
+    list.innerHTML = shopping.map(function (item) {
+      return '<div class="shopping-item" data-id="' + item.id + '">' +
+        '<label class="shopping-check">' +
+        '<input type="checkbox" data-id="' + item.id + '" ' +
+        'aria-label="Mark ' + escapeHtml(item.label) + ' as bought and remove it">' +
+        '<span class="shopping-box" aria-hidden="true">' +
+        '<svg class="icon" viewBox="0 0 24 24"><path d="M5 12.5 10 17 19 7"/></svg>' +
+        '</span>' +
+        '</label>' +
+        '<div class="shopping-body">' +
+        '<div class="shopping-label">' + escapeHtml(item.label) + '</div>' +
+        '<div class="shopping-meta">' +
+        '<span class="shopping-qty">x' + item.qty + '</span>' +
+        (item.addedBy ? '<span>added by ' + escapeHtml(item.addedBy) + '</span>' : '') +
+        '</div>' +
+        '</div>' +
+        '<button type="button" class="shopping-remove" data-id="' + item.id + '" ' +
+        'aria-label="Remove ' + escapeHtml(item.label) + '" title="Remove from list">' +
+        '<svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>' +
+        '</button>' +
+        '</div>';
+    }).join("");
+
+    list.querySelectorAll(".shopping-check input").forEach(function (box) {
+      box.addEventListener("change", function () {
+        tickOffShoppingItem(Number(box.dataset.id));
+      });
+    });
+    list.querySelectorAll(".shopping-remove").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        removeShoppingItem(Number(btn.dataset.id));
+      });
+    });
+  }
+
+  function shoppingIndex(id) {
+    return shopping.findIndex(function (item) { return item.id === id; });
+  }
+
+  function tickOffShoppingItem(id) {
+    const index = shoppingIndex(id);
+    if (index === -1) return;
+    const item = shopping[index];
+    // Let the checkmark paint before the row is pulled out of the list.
+    const row = document.querySelector('.shopping-item[data-id="' + id + '"]');
+    if (row) row.classList.add("checked");
+    setTimeout(function () {
+      shopping.splice(shoppingIndex(id), 1);
+      logActivity("Picked up \"" + item.label + "\" x" + item.qty + " - removed from shopping list");
+      toast("\"" + item.label + "\" ticked off");
+      markSaving();
+      renderShopping();
+    }, 260);
+  }
+
+  function removeShoppingItem(id) {
+    const index = shoppingIndex(id);
+    if (index === -1) return;
+    const item = shopping[index];
+    shopping.splice(index, 1);
+    logActivity("Removed \"" + item.label + "\" from shopping list");
+    toast("Item removed");
+    markSaving();
+    renderShopping();
+  }
+
+  const shoppingForm = document.getElementById("shoppingForm");
+  shoppingForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const input = document.getElementById("shoppingInput");
+    const label = input.value.trim();
+    if (!label) return;
+    const qty = Number(document.getElementById("shoppingQty").value) || 1;
+    const existing = shopping.find(function (item) {
+      return item.label.toLowerCase() === label.toLowerCase();
+    });
+    if (existing) {
+      // Same item added again: bump the quantity rather than duplicating it.
+      existing.qty += qty;
+      toast("\"" + existing.label + "\" is now x" + existing.qty);
+    } else {
+      shopping.push({ id: shoppingUid++, label: label, qty: qty, addedBy: "Marco Conti" });
+      toast("Added \"" + label + "\" to the shopping list");
+    }
+    logActivity("Added \"" + label + "\" x" + qty + " to shopping list");
+    input.value = "";
+    document.getElementById("shoppingQty").value = "1";
+    markSaving();
+    renderShopping();
+    input.focus();
+  });
+
   /* ---------------- Weekly report modal ---------------- */
   const reportModal = document.getElementById("reportModal");
   function openReport() {
@@ -877,11 +1017,14 @@
       "Total tasks logged: " + tasks.length,
       "Owner issues resolved: " + complaints.filter(function (c) { return c.status === 'closed'; }).length,
       "Open issues remaining: " + complaints.filter(function (c) { return c.status !== 'closed'; }).length,
+      "Shopping items outstanding: " + shopping.length,
       "",
       "Task detail:"
     ].concat(tasks.map(function (t) {
       return " - [" + (t.done ? "x" : " ") + "] " + dateLabel(t.day) + ": " + t.title + " (" + t.location + ", " + t.priority + " priority, " + assigneeLabel(t.assignee) + ")" + (t.moved ? " - moved from " + dateLabel(t.moved) : "");
-    }));
+    })).concat(shopping.length ? ["", "Shopping list detail:"].concat(shopping.map(function (i) {
+      return " - x" + i.qty + " " + i.label;
+    })) : []);
     const blob = new Blob([lines.join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -906,5 +1049,6 @@
   setSaveState("saved");
   renderAll();
   renderComplaints();
+  renderShopping();
   saveBoardData();
 })();
