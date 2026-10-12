@@ -50,7 +50,7 @@
   <header class="topbar">
     <div class="topbar-left">
       <span class="eyebrow" id="todayLabel">Friday, 10 October</span>
-      <h2 class="title">Good morning, Marco</h2>
+      <h2 class="title">Hi Sharondale</h2>
     </div>
     <div class="topbar-right">
       <button class="bell-btn" id="bellBtn" aria-label="Notifications" title="Unresolved issues">
@@ -148,6 +148,12 @@
               <option value="low">Low</option>
               <option value="medium" selected>Medium</option>
               <option value="high">High</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="f-assignee">Assign to</label>
+            <select id="f-assignee">
+              <option value="">Unassigned</option>
             </select>
           </div>
           <div class="field" style="grid-column:1 / -1;">
@@ -275,6 +281,52 @@
       </div>
     </div>
   </div>
+</div>
+
+<div class="modal-overlay" id="editModal">
+  <form class="modal edit-modal" id="editForm">
+    <div class="modal-head">
+      <div>
+        <h2>Edit task</h2>
+        <div class="sub edit-description"></div>
+      </div>
+      <button type="button" class="modal-close" id="closeEdit" aria-label="Close">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="e-title">Task title</label>
+        <input type="text" id="e-title" placeholder="e.g. Replace hallway bulb" required>
+      </div>
+      <div class="field">
+        <label for="e-location">Location</label>
+        <input type="text" id="e-location" placeholder="Block / unit" required>
+      </div>
+      <div class="field">
+        <label for="e-day">Due date</label>
+        <select id="e-day"></select>
+      </div>
+      <div class="field">
+        <label for="e-priority">Priority</label>
+        <select id="e-priority">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="e-assignee">Assign to</label>
+        <select id="e-assignee">
+          <option value="">Unassigned</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost btn-sm" id="cancelEdit">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
+      </div>
+    </div>
+  </form>
 </div>
 
 <div class="modal-overlay" id="deleteModal">

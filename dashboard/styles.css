@@ -466,6 +466,18 @@
   .task-card .t-top{padding-right:24px;}
   .task-card .t-loc{font-size:11.5px; color:var(--muted); display:flex; align-items:center; gap:4px;}
   .task-card .t-loc .icon{width:12px;height:12px;}
+  .task-card .t-assignee{
+    display:flex; align-items:center; gap:5px;
+    font-size:11px; font-weight:600; color:var(--forest);
+    background:var(--forest-pale); border:1px solid rgba(23,72,58,0.16);
+    padding:3px 7px; border-radius:6px; width:fit-content; max-width:100%;
+  }
+  .task-card .t-assignee .icon{width:12px;height:12px;flex:0 0 auto;}
+  .task-card .t-assignee span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .task-card .t-assignee.unassigned{
+    color:var(--muted); background:var(--canvas);
+    border-color:var(--line); font-weight:500; font-style:italic;
+  }
   .task-card .t-thumb{
     width:100%; height:56px; border-radius:7px; overflow:hidden; margin-top:2px;
     background:linear-gradient(135deg, #E9D9B7 0%, #C9A565 40%, #7C8F6C 75%, #3E5C47 100%);
@@ -489,12 +501,17 @@
     position:absolute; top:8px; right:31px; color:#C7CDC3; display:flex; gap:2px;
   }
   .task-card .drag-handle .icon{width:13px;height:13px;}
+  .task-card .t-actions{display:flex; align-items:center; gap:2px; margin-left:auto;}
+  .task-card .task-edit,
   .task-card .task-delete{
-    position:absolute;top:6px;right:6px;
     display:flex;align-items:center;justify-content:center;
     width:22px;height:22px;padding:0;border:0;border-radius:6px;
-    background:transparent;color:var(--coral);cursor:pointer;
+    background:transparent;cursor:pointer;
   }
+  .task-card .task-edit{color:var(--forest);}
+  .task-card .task-edit:hover{background:var(--forest-pale);}
+  .task-card .task-edit .icon{width:14px;height:14px;}
+  .task-card .task-delete{color:var(--coral);}
   .task-card .task-delete:hover{background:#F4E2DE;color:#873C32;}
   .task-card .task-delete .icon{width:14px;height:14px;}
 
@@ -655,6 +672,18 @@
   }
   .delete-modal .field input:focus{border-color:var(--forest);}
   .delete-error{color:var(--coral);font-size:12px;min-height:16px;}
+
+  /* ---- Edit task modal ---- */
+  .edit-modal{width:min(460px, 100%);}
+  .edit-modal .modal-body{gap:14px;}
+  .edit-modal .field input[type="text"],
+  .edit-modal .field select{
+    border:1px solid var(--line);background:#FEFCF6;border-radius:9px;
+    padding:10px 11px;font:inherit;font-size:13px;color:var(--ink);width:100%;
+  }
+  .edit-modal .field input[type="text"]:focus,
+  .edit-modal .field select:focus{border-color:var(--forest);outline:none;}
+  .edit-modal .modal-actions{border-top:1px solid var(--line-soft);padding-top:14px;margin-top:2px;}
 
   /* ---- Toast ---- */
   .toast-stack{
