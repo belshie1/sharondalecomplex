@@ -65,6 +65,10 @@
   // constant buried in this file. "Unassigned" is an empty value, not a person.
   let people = [];
   let peopleUid = 1;
+  // External contacts (contractors, suppliers, emergency numbers). Separate from
+  // the roster because they are people to phone, not people to assign work to.
+  let phonebook = [];
+  let phonebookUid = 1;
   const UNASSIGNED = "";
   function assigneeLabel(value) {
     return value ? value : "Unassigned";
@@ -198,7 +202,8 @@
       complaints: complaints,
       shopping: shopping,
       recurring: recurringTasks,
-      people: people
+      people: people,
+      phonebook: phonebook
     };
   }
 
@@ -295,7 +300,8 @@
         complaints: (board.complaints || []).filter(isValidComplaint),
         shopping: (board.shopping || []).filter(isValidShoppingItem),
         recurring: board.recurring || [],
-        people: board.people || []
+        people: board.people || [],
+        phonebook: board.phonebook || []
       };
     } catch (error) {
       serverReachable = false;
@@ -311,7 +317,8 @@
         complaints: (cached.complaints || []).filter(isValidComplaint),
         shopping: (cached.shopping || []).filter(isValidShoppingItem),
         recurring: cached.recurring || [],
-        people: cached.people || []
+        people: cached.people || [],
+        phonebook: cached.phonebook || []
       };
     }
   }
@@ -448,6 +455,7 @@
       renderComplaints();
       renderShopping();
       renderPeople();
+      renderPhonebook();
     } catch (error) {
       tokenError.textContent = "Could not reach the server: " + error.message;
     }
@@ -1169,6 +1177,45 @@
     });
   }
 
+  // New reports are logged straight into the same list the owner issues live in,
+  // so they flow into the weekly report and the open-issue counters like any
+  // other complaint. Ids must stay numeric: isValidComplaint rejects anything
+  // else, and a rejected row would silently vanish on the next server load.
+  let complaintUid = complaints.reduce(function (max, c) {
+    return typeof c.id === "number" && c.id > max ? c.id : max;
+  }, 0) + 1;
+
+  const complaintForm = document.getElementById("complaintForm");
+  complaintForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const ownerInput = document.getElementById("complaintOwner");
+    const aptInput = document.getElementById("complaintApt");
+    const typeInput = document.getElementById("complaintType");
+    const owner = ownerInput.value.trim();
+    const apt = aptInput.value.trim();
+    const type = typeInput.value.trim();
+    if (!owner || !apt || !type) return;
+
+    complaints.push({
+      id: complaintUid++,
+      owner: owner,
+      apt: apt,
+      type: type,
+      age: "just now",
+      status: "open",
+      note: null,
+    });
+    logActivity("Logged " + owner + "'s report (" + type + ")");
+    toast("Report added for " + owner);
+    ownerInput.value = "";
+    aptInput.value = "";
+    typeInput.value = "";
+    markSaving();
+    renderComplaints();
+    renderAll();
+    ownerInput.focus();
+  });
+
   /* ---------------- Shopping list ---------------- */
   // Ticking an item removes it from the list, so what remains is exactly what
   // still needs buying. Removal is permanent, so it is logged to the activity
@@ -1421,6 +1468,111 @@
 
   document.getElementById("currentUserSelect").addEventListener("change", function (e) {
     setCurrentUser(e.target.value);
+  });
+
+  /* ---------------- Phonebook ---------------- */
+  // External contacts the caretaker phones: contractors, suppliers, emergency
+  // lines. Kept apart from the roster so a plumber never shows up in the
+  // "assign to" list, and stored on the server so every device sees the same
+  // numbers.
+  function phonebookMatches(contact, query) {
+    if (!query) return true;
+    const haystack = [contact.name, contact.company, contact.phone, contact.note]
+      .join(" ").toLowerCase();
+    return haystack.indexOf(query) !== -1;
+  }
+
+  function renderPhonebook() {
+    const list = document.getElementById("phonebookList");
+    if (!list) return;
+
+    document.getElementById("navPhonebookCount").textContent = phonebook.length;
+    const summary = document.getElementById("phonebookSummary");
+    summary.textContent = phonebook.length === 0
+      ? "No contacts yet"
+      : phonebook.length + (phonebook.length === 1 ? " contact" : " contacts") +
+        " for contractors, suppliers and emergencies";
+
+    if (phonebook.length === 0) {
+      list.innerHTML = '<p class="phonebook-empty">' +
+        '<svg class="icon" viewBox="0 0 24 24"><path d="M6 3.5h12v17H6z"/><path d="M9 11h6M9 14.5h4"/></svg>' +
+        '<span>Add the contractors, suppliers and emergency numbers you call.</span></p>';
+      return;
+    }
+
+    list.innerHTML = phonebook.map(function (c) {
+      return '<div class="contact-row" data-id="' + escapeHtml(c.id) + '">' +
+        '<span class="contact-avatar" aria-hidden="true">' + escapeHtml(initialsOf(c.name)) + '</span>' +
+        '<div class="contact-body">' +
+        '<div class="contact-name">' + escapeHtml(c.name) + '</div>' +
+        '<div class="contact-meta">' +
+        (c.company ? escapeHtml(c.company) : '<span class="contact-none">No company</span>') +
+        (c.note ? ' · ' + escapeHtml(c.note) : '') +
+        '</div>' +
+        '<a class="contact-phone" href="tel:' + escapeHtml(String(c.phone).replace(/[^0-9+]/g, '')) + '">' +
+        '<svg class="icon" viewBox="0 0 24 24"><path d="M6.5 3.5h3l1.5 4-2 1.5a11 11 0 0 0 5 5l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A15.5 15.5 0 0 1 4.5 5.7 2 2 0 0 1 6.5 3.5Z"/></svg>' +
+        escapeHtml(c.phone) + '</a>' +
+        '</div>' +
+        '<div class="contact-actions">' +
+        '<button type="button" class="contact-remove" aria-label="Remove ' + escapeHtml(c.name) + '" title="Remove contact">' +
+        '<svg class="icon" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>' +
+        '</button>' +
+        '</div>' +
+        '</div>';
+    }).join("");
+
+    list.querySelectorAll(".contact-remove").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        removeContact(btn.closest(".contact-row").dataset.id);
+      });
+    });
+  }
+
+  function removeContact(id) {
+    const contact = phonebook.find(function (c) { return c.id === id; });
+    if (!contact) return;
+    phonebook = phonebook.filter(function (c) { return c.id !== id; });
+    logActivity("Removed " + contact.name + " from the phonebook");
+    toast(contact.name + " removed from the phonebook");
+    markSaving();
+    renderPhonebook();
+  }
+
+  const phonebookForm = document.getElementById("phonebookForm");
+  phonebookForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const nameInput = document.getElementById("phonebookName");
+    const companyInput = document.getElementById("phonebookCompany");
+    const phoneInput = document.getElementById("phonebookPhone");
+    const noteInput = document.getElementById("phonebookNote");
+    const name = nameInput.value.trim();
+    const company = companyInput.value.trim();
+    const phone = phoneInput.value.trim();
+    const note = noteInput.value.trim();
+    if (!name || !phone) return;
+    if (phonebook.some(function (c) {
+      return c.name.toLowerCase() === name.toLowerCase() && c.phone === phone;
+    })) {
+      toast("\"" + name + "\" is already in the phonebook with that number");
+      nameInput.select();
+      return;
+    }
+    phonebook.push({
+      id: "c-" + Date.now().toString(36) + "-" + phonebookUid++,
+      name: name,
+      company: company,
+      phone: phone,
+      note: note,
+    });
+    logActivity("Added " + name + " to the phonebook" + (company ? " (" + company + ")" : ""));
+    toast(name + " added to the phonebook");
+    nameInput.value = "";
+    companyInput.value = "";
+    phoneInput.value = "";
+    noteInput.value = "";
+    markSaving();
+    renderPhonebook();
+    nameInput.focus();
   });
 
   /* ---------------- Weekly report modal ---------------- */
@@ -1730,6 +1882,7 @@
     renderComplaints();
     renderShopping();
     renderPeople();
+    renderPhonebook();
 
     // Whoever used this browser last stays selected; it is a convenience, not
     // shared state, so it is kept locally rather than on the server.
@@ -1748,6 +1901,10 @@
         board.shopping.forEach(function (i) { shopping.push(i); });
         recurringTasks = board.recurring || [];
         people = board.people || [];
+        phonebook = board.phonebook || [];
+        // Start new ids above anything the server already holds, so a contact
+        // added in this session cannot collide with an existing one.
+        phonebookUid = phonebook.length + 1;
         applyRecurringTasks();
         logActivity(serverReachable
           ? "Board loaded from the server"
@@ -1765,6 +1922,7 @@
       renderComplaints();
       renderShopping();
       renderPeople();
+      renderPhonebook();
       setSaveState(serverReachable ? "saved" : "offline");
       // Establishing read access does not prove write access, so probe with a
       // no-op save. If the server wants a code, the chip says so rather than the
@@ -1821,8 +1979,10 @@
               .forEach(function (i) { shopping.push(i); });
             recurringTasks = board.recurring || [];
             people = board.people || people;
+            phonebook = board.phonebook || phonebook;
             refreshPeopleSelects();
             renderPeople();
+            renderPhonebook();
             applyRecurringTasks();
             renderAll();
             renderComplaints();

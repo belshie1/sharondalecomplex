@@ -128,6 +128,25 @@ function validateBoard(body) {
       });
     }
   }
+  if (body.phonebook !== undefined) {
+    if (!Array.isArray(body.phonebook)) {
+      errors.push("phonebook must be an array.");
+    } else {
+      body.phonebook.forEach((c, i) => {
+        if (typeof c.name !== "string" || !c.name.trim()) {
+          errors.push(`phonebook[${i}].name is required.`);
+        }
+        // A contact is only useful if it can be dialled, so at least one of
+        // phone or company has to be present.
+        const hasPhone = typeof c.phone === "string" && c.phone.trim();
+        const hasCompany = typeof c.company === "string" && c.company.trim();
+        if (!hasPhone && !hasCompany) {
+          errors.push(`phonebook[${i}] needs a phone number or a company.`);
+        }
+        if (c.id === undefined || c.id === null) errors.push(`phonebook[${i}].id is required.`);
+      });
+    }
+  }
   return errors;
 }
 
@@ -202,6 +221,7 @@ async function handleApi(req, res, pathname) {
         // Omit people to leave them untouched; the People screen always sends
         // the full list, so an empty array there genuinely clears the roster.
         people: body.people === undefined ? null : body.people,
+        phonebook: body.phonebook === undefined ? null : body.phonebook,
       });
       broadcast();
       return sendJson(res, 200, { ok: true, board: saved });

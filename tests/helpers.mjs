@@ -58,6 +58,10 @@ export async function resetBoard(page, { reload = true } = {}) {
         { id: "qa-p3", name: "Tomas Brandt", role: "Maintenance" },
         { id: "qa-p4", name: "Priya Nair", role: "Cleaning" },
       ],
+      phonebook: [
+        { id: "qa-c1", name: "QA Emergency Line", company: "QA Residence", phone: "011 555 0100", note: "24 hours" },
+        { id: "qa-c2", name: "QA Plumbing", company: "QA Plumbing CC", phone: "011 555 0142", note: "Leaks" },
+      ],
     };
 
     await fetch("/api/board", {
@@ -74,7 +78,8 @@ export async function resetBoard(page, { reload = true } = {}) {
       const res = await fetch("/api/board");
       const current = await res.json();
       const hasRoster = Array.isArray(current.people) && current.people.length === board.people.length;
-      const matches = hasRoster && current.tasks.length === expected &&
+      const hasContacts = Array.isArray(current.phonebook) && current.phonebook.length === board.phonebook.length;
+      const matches = hasRoster && hasContacts && current.tasks.length === expected &&
         current.shopping.length === board.shopping.length;
       if (matches) break;
       await new Promise(r => setTimeout(r, 100));

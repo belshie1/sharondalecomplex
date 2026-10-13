@@ -88,6 +88,19 @@ db.exec(`
     priority TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
     assignee TEXT NOT NULL DEFAULT ''
   );
+
+  -- The phonebook holds external contacts (contractors, suppliers, emergency
+  -- numbers) that are not staff, so they live separately from the people
+  -- roster rather than being assignable work targets.
+  CREATE TABLE IF NOT EXISTS phonebook (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    company    TEXT NOT NULL DEFAULT '',
+    phone      TEXT NOT NULL DEFAULT '',
+    note       TEXT NOT NULL DEFAULT '',
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+  );
 `);
 
 // Lightweight migrations for databases created before a column existed.
@@ -142,6 +155,16 @@ function personFromRow(r) {
   return { id: r.id, name: r.name, role: r.role, color: r.color };
 }
 
+function phonebookFromRow(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    company: r.company || "",
+    phone: r.phone || "",
+    note: r.note || "",
+  };
+}
+
 /* -------------------------------- reads -------------------------------- */
 
 export function readAll() {
@@ -172,7 +195,11 @@ export function readAll() {
     .prepare("SELECT * FROM people ORDER BY sort_order ASC, name ASC")
     .all()
     .map(personFromRow);
-  return { tasks, complaints, shopping, recurring, people };
+  const phonebook = db
+    .prepare("SELECT * FROM phonebook ORDER BY sort_order ASC, name ASC")
+    .all()
+    .map(phonebookFromRow);
+  return { tasks, complaints, shopping, recurring, people, phonebook };
 }
 
 export function isSeeded() {
@@ -199,7 +226,7 @@ const upsertTask = () =>
  * board write is both simpler and safer than diffing every field client-side:
  * a half-applied drag can never be stored.
  */
-export function replaceBoard({ tasks = [], complaints = [], shopping = [], recurring = [], people = null }) {
+export function replaceBoard({ tasks = [], complaints = [], shopping = [], recurring = [], people = null, phonebook = null }) {
   const writeTasks = upsertTask();
   const writeComplaint = db.prepare(`
     INSERT INTO complaints (id,owner,apt,type,age,status,note,updated_at)
@@ -226,6 +253,13 @@ export function replaceBoard({ tasks = [], complaints = [], shopping = [], recur
     VALUES (:id,:name,:role,:color,:sortOrder,:updatedAt)
     ON CONFLICT(id) DO UPDATE SET
       name=:name, role=:role, color=:color,
+      sort_order=:sortOrder, updated_at=:updatedAt
+  `);
+  const writeContact = db.prepare(`
+    INSERT INTO phonebook (id,name,company,phone,note,sort_order,updated_at)
+    VALUES (:id,:name,:company,:phone,:note,:sortOrder,:updatedAt)
+    ON CONFLICT(id) DO UPDATE SET
+      name=:name, company=:company, phone=:phone, note=:note,
       sort_order=:sortOrder, updated_at=:updatedAt
   `);
 
@@ -352,6 +386,30 @@ export function replaceBoard({ tasks = [], complaints = [], shopping = [], recur
           updatedAt: ts,
         });
       });
+    }
+
+    // The phonebook follows the same partial-write rule as the roster: an
+    // omitted key leaves it untouched, an empty array clears it.
+    if (phonebook !== null) {
+      phonebook.forEach((c, i) => {
+        writeContact.run({
+          id: String(c.id),
+          name: c.name,
+          company: c.company || "",
+          phone: c.phone || "",
+          note: c.note || "",
+          sortOrder: i,
+          updatedAt: ts,
+        });
+      });
+      const contactIds = phonebook.map((c) => String(c.id));
+      if (contactIds.length) {
+        db.prepare(
+          `DELETE FROM phonebook WHERE id NOT IN (${contactIds.map(() => "?").join(",")})`
+        ).run(...contactIds);
+      } else {
+        db.prepare("DELETE FROM phonebook").run();
+      }
     }
 
     db.exec("COMMIT");

@@ -32,6 +32,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - Delete a complaint or owner report, behind the same password as task removal
 - Review the weekly report and save it as a **PDF** (print-ready, with a plain-text export alongside)
 - Keep a shopping list of supplies: add items with a quantity, and ticking one off removes it from the list
+- Keep a phonebook of contractors, suppliers and emergency numbers, with a company and a tap-to-call number
 
 ## Project files
 
@@ -47,6 +48,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - `tests/qa-backlog.mjs` - browser QA script covering the unscheduled list, drag-to-schedule, and persistence
 - `tests/qa-shopping.mjs` - browser QA script covering the shopping list, tick-to-remove, and persistence
 - `tests/qa-people.mjs` - browser QA script covering the People roster and the Created by field
+- `tests/qa-phonebook.mjs` - browser QA script covering the phonebook contacts, tap-to-call links, and persistence
 - `tests/qa-report.mjs` - browser QA script covering the printable PDF report
 - `tests/qa-complaint-delete.mjs` - browser QA script covering password-protected deletion of complaints and reports, and that the deletion is saved to the server
 - `tests/qa-token.mjs` - browser QA script covering the access-code lock
@@ -125,7 +127,7 @@ immediately available everywhere.
 | Method | Path | Purpose |
 |---|---|---|
 | `GET` | `/api/health` | Counts and whether writes are protected. |
-| `GET` | `/api/board` | The whole board: tasks, complaints, shopping, recurring. |
+| `GET` | `/api/board` | The whole board: tasks, complaints, shopping, recurring, people, phonebook. |
 | `PUT` | `/api/board` | Replace the whole board (validation errors return 400 with details). |
 | `GET` | `/api/events` | Server-sent events; pushes `board` on every accepted write. |
 

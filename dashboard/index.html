@@ -44,6 +44,11 @@
         People
         <span class="count" id="navPeopleCount">0</span>
       </button>
+      <button class="nav-item" data-view="phonebook">
+        <svg class="icon" viewBox="0 0 24 24"><path d="M6 3.5h12v17H6z"/><path d="M9.5 3.5v2h5v-2"/><path d="M9 11h6M9 14.5h4"/></svg>
+        Phonebook
+        <span class="count" id="navPhonebookCount">0</span>
+      </button>
       <button class="nav-item" id="weeklyReportNav">
         <svg class="icon" viewBox="0 0 24 24"><path d="M5 3.5h14v17H5z"/><path d="M9 8.5h6M9 12h6M9 15.5h3.5"/></svg>
         Weekly report
@@ -266,6 +271,15 @@
       </div>
 
       <div class="complaints-card">
+        <form class="complaint-add" id="complaintForm">
+          <input type="text" id="complaintOwner" placeholder="Owner, e.g. L. Marchetti" autocomplete="off" required>
+          <input type="text" id="complaintApt" placeholder="Apartment, e.g. Block A - 12" autocomplete="off" required>
+          <input type="text" id="complaintType" placeholder="Issue, e.g. Plumbing leak" autocomplete="off" required>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Add report
+          </button>
+        </form>
         <div class="complaints-head">
           <span>Owner / apartment</span>
           <span>Type</span>
@@ -332,6 +346,31 @@
         </form>
 
         <div class="people-list" id="peopleList"></div>
+      </div>
+    </section>
+
+    <!-- ===================== PHONEBOOK VIEW ===================== -->
+    <section class="view" id="view-phonebook">
+      <div class="page-head">
+        <div>
+          <h1>Phonebook</h1>
+          <p class="range" id="phonebookSummary">Contractors, suppliers and emergency numbers</p>
+        </div>
+      </div>
+
+      <div class="phonebook-card">
+        <form class="phonebook-add" id="phonebookForm">
+          <input type="text" id="phonebookName" placeholder="Name, e.g. Delta Plumbing" autocomplete="off" required>
+          <input type="text" id="phonebookCompany" placeholder="Company (optional)" autocomplete="off">
+          <input type="tel" id="phonebookPhone" placeholder="Phone, e.g. 011 555 0142" autocomplete="off" required>
+          <input type="text" id="phonebookNote" placeholder="Note (optional), e.g. after-hours callout" autocomplete="off">
+          <button type="submit" class="btn btn-primary btn-sm">
+            <svg class="icon" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Add contact
+          </button>
+        </form>
+
+        <div class="phonebook-list" id="phonebookList"></div>
       </div>
     </section>
 

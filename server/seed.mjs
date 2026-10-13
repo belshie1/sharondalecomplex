@@ -65,6 +65,13 @@ export function seedIfEmpty() {
       { id: "p-3", name: "Tomas Brandt", role: "Maintenance" },
       { id: "p-4", name: "Priya Nair", role: "Cleaning" },
     ],
+    phonebook: [
+      { id: "c-1", name: "Sharondale emergency line", company: "Sharondale Residence", phone: "011 555 0100", note: "24 hours" },
+      { id: "c-2", name: "Delta Plumbing", company: "Delta Plumbing CC", phone: "011 555 0142", note: "Owner leaks and blockages" },
+      { id: "c-3", name: "Northgate Electrical", company: "Northgate Electrical", phone: "011 555 0177", note: "After-hours callout" },
+      { id: "c-4", name: "GreenKeep Garden Services", company: "GreenKeep", phone: "011 555 0193", note: "Fortnightly contract" },
+      { id: "c-5", name: "Liftcare Services", company: "Liftcare", phone: "011 555 0168", note: "Elevator maintenance" },
+    ],
   });
   return true;
 }
