@@ -893,6 +893,8 @@
   .status-chip.progress{background:var(--amber-pale); color:var(--amber-dark);}
   .status-chip.closed{background:var(--forest-pale); color:var(--forest);}
   .c-actions{display:flex; gap:8px; flex-wrap:wrap;}
+  .c-actions .act-delete{color:var(--coral); border-color:#E9CFC9;}
+  .c-actions .act-delete:hover{background:#F4E2DE; color:#873C32;}
   .close-note{
     grid-column:1 / -1;
     margin-top:12px;

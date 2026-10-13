@@ -704,17 +704,42 @@
   const deleteForm = document.getElementById("deleteForm");
   const deletePassword = document.getElementById("deletePassword");
   const deleteError = document.getElementById("deleteError");
+  const deleteModalTitle = document.getElementById("deleteModalTitle");
+  const deleteSubmit = document.getElementById("deleteSubmit");
+  const deleteDescription = deleteModal.querySelector(".delete-description");
   let pendingDeleteTaskId = null;
+  let pendingDeleteComplaintId = null;
 
-  function requestTaskRemoval(task) {
-    pendingDeleteTaskId = task.id;
-    deleteModal.querySelector(".delete-description").textContent = task.recurring
-      ? 'Remove "' + task.title + '" and stop it from repeating every week?'
-      : 'Remove "' + task.title + '" from this week’s board?';
+  function openDeleteModal(description, focusTitle, focusAction, target) {
+    pendingDeleteTaskId = target && target.type === "task" ? target.id : null;
+    pendingDeleteComplaintId = target && target.type === "complaint" ? target.id : null;
+    deleteModalTitle.textContent = focusTitle;
+    deleteSubmit.textContent = focusAction;
+    deleteDescription.textContent = description;
     deletePassword.value = "";
     deleteError.textContent = "";
     deleteModal.classList.add("open");
     deletePassword.focus();
+  }
+
+  function requestTaskRemoval(task) {
+    openDeleteModal(
+      task.recurring
+        ? 'Remove "' + task.title + '" and stop it from repeating every week?'
+        : 'Remove "' + task.title + '" from this week’s board?',
+      "Confirm task removal",
+      "Remove task",
+      { type: "task", id: task.id }
+    );
+  }
+
+  function requestComplaintRemoval(complaint) {
+    openDeleteModal(
+      'Delete the report from ' + complaint.owner + ' (' + complaint.type + ')? This cannot be undone.',
+      "Confirm report deletion",
+      "Delete report",
+      { type: "complaint", id: complaint.id }
+    );
   }
 
   function closeDeleteModal() {
@@ -722,6 +747,7 @@
     deleteForm.reset();
     deleteError.textContent = "";
     pendingDeleteTaskId = null;
+    pendingDeleteComplaintId = null;
   }
 
   function removeTask(taskId) {
@@ -741,16 +767,37 @@
     renderAll();
   }
 
-  deleteForm.addEventListener("submit", function (e) {
-    e.preventDefault();
+  function removeComplaint(complaintId) {
+    const complaintIndex = complaints.findIndex(function (c) { return c.id === complaintId; });
+    if (complaintIndex === -1) return;
+    const complaint = complaints[complaintIndex];
+    complaints.splice(complaintIndex, 1);
+    logActivity("Deleted " + complaint.owner + "'s report (" + complaint.type + ")");
+    toast("Report deleted");
+    markSaving();
+    renderComplaints();
+    renderAll();
+  }
+
+  function submitDelete() {
     if (deletePassword.value !== DELETE_PASSWORD) {
-      deleteError.textContent = "Incorrect password. The task was not removed.";
+      deleteError.textContent = "Incorrect password. Nothing was deleted.";
       deletePassword.select();
       return;
     }
     const taskId = pendingDeleteTaskId;
+    const complaintId = pendingDeleteComplaintId;
     closeDeleteModal();
     if (taskId !== null) removeTask(taskId);
+    else if (complaintId !== null) removeComplaint(complaintId);
+  }
+
+  // The confirm control is a plain button and the form submit is only a keyboard
+  // fallback (Enter in the password field), so both paths share one code path.
+  deleteSubmit.addEventListener("click", submitDelete);
+  deleteForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    submitDelete();
   });
   document.getElementById("cancelDelete").addEventListener("click", closeDeleteModal);
   deleteModal.addEventListener("click", function (e) {
@@ -1055,6 +1102,7 @@
       '<div class="c-actions">' +
       '<button class="btn btn-ghost btn-sm act-create" ' + (c.status === 'closed' ? 'disabled' : '') + '>Create task</button>' +
       '<button class="btn btn-coral btn-sm act-close" ' + (c.status === 'closed' ? 'disabled' : '') + '>Close with action</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm act-delete" aria-label="Delete report from ' + escapeHtml(c.owner) + '" title="Delete report">Delete</button>' +
       '</div>' +
       '<div class="close-note" id="note-' + c.id + '">' +
       '<textarea placeholder="Describe the action taken to resolve this issue..."></textarea>' +
@@ -1110,6 +1158,13 @@
         markSaving();
         renderComplaints();
         renderAll();
+      });
+    });
+    document.querySelectorAll(".act-delete").forEach(function(btn){
+      btn.addEventListener("click", function(){
+        const row = btn.closest(".complaint-row");
+        const c = complaints.find(function(x){ return x.id === Number(row.dataset.id); });
+        if(c) requestComplaintRemoval(c);
       });
     });
   }

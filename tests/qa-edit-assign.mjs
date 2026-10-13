@@ -80,7 +80,7 @@ export default async function run(page) {
   await page.locator('.task-card[data-id="' + taskId + '"] .task-delete').click();
   await page.waitForTimeout(200);
   await page.locator("#deletePassword").fill("5879");
-  await page.locator("#deleteForm button[type=submit]").click();
+  await page.locator("#deleteSubmit").click();
   await page.waitForTimeout(600);
   results.deleteStillWorksAfterEdit = (await page.locator('.task-card[data-id="' + taskId + '"]').count()) === 0;
   const afterDelete = await serverBoard(page);

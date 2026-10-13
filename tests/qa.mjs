@@ -52,7 +52,7 @@ export default async function run(page, ui) {
   await page.locator('.task-card[data-id="' + removableTaskId + '"] .task-delete').click();
   await page.locator("#deletePassword").waitFor({ state: "visible", timeout: 5000 });
   await page.locator("#deletePassword").fill("0000");
-  await page.locator("#deleteForm button[type=submit]").click();
+  await page.locator("#deleteSubmit").click();
   await page.waitForTimeout(300);
   results.wrongPasswordBlocked = (await taskAfterRemoval.count()) === 1 &&
     (await page.locator("#deleteError").innerText()).length > 0;
@@ -62,7 +62,7 @@ export default async function run(page, ui) {
   await page.locator('.task-card[data-id="' + removableTaskId + '"] .task-delete').click();
   await page.locator("#deletePassword").waitFor({ state: "visible", timeout: 5000 });
   await page.locator("#deletePassword").fill("5879");
-  await page.locator("#deleteForm button[type=submit]").click();
+  await page.locator("#deleteSubmit").click();
   await page.waitForTimeout(600);
   results.correctPasswordRemovesTask = (await taskAfterRemoval.count()) === 0;
 

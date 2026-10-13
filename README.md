@@ -29,6 +29,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - Review complaints and owner reports
 - Create a task directly from a complaint
 - Close complaints with a recorded action
+- Delete a complaint or owner report, behind the same password as task removal
 - Review the weekly report and save it as a **PDF** (print-ready, with a plain-text export alongside)
 - Keep a shopping list of supplies: add items with a quantity, and ticking one off removes it from the list
 
@@ -47,6 +48,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - `tests/qa-shopping.mjs` - browser QA script covering the shopping list, tick-to-remove, and persistence
 - `tests/qa-people.mjs` - browser QA script covering the People roster and the Created by field
 - `tests/qa-report.mjs` - browser QA script covering the printable PDF report
+- `tests/qa-complaint-delete.mjs` - browser QA script covering password-protected deletion of complaints and reports, and that the deletion is saved to the server
 - `tests/qa-token.mjs` - browser QA script covering the access-code lock
 - `tests/run-all.mjs` - runs every QA suite against a throwaway backend (`npm test`)
 - `tests/qa-backend.mjs` - proves data is stored server-side and visible from a second device
