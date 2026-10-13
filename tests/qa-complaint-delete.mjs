@@ -83,9 +83,10 @@ export default async function run(page, ui) {
 
   // The open-issue counters track the deletion. The reset fixture has four
   // complaints, all non-closed (3 open + 1 in progress), so deleting one leaves 3.
+  // The sidebar badge and the bell are the surviving indicators of that count.
   results.navCount = await page.locator("#navComplaintCount").innerText();
-  results.kpiCount = await page.locator("#kpiIssues").innerText();
-  results.countersDropped = results.navCount === "3" && results.kpiCount === "3";
+  results.bellCount = await page.locator("#bellBadge").innerText();
+  results.countersDropped = results.navCount === "3" && results.bellCount === "3";
 
   // Task deletion shares the dialog and must keep its own wording and behaviour.
   await page.locator('.nav-item[data-view="tasks"]').dispatchEvent("click");

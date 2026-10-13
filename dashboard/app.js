@@ -571,18 +571,14 @@
     attachBacklogEvents();
   }
 
-  /* ---------------- KPIs & focus panel ---------------- */
+  /* ---------------- Counters & focus panel ---------------- */
+  // The KPI cards that used to sit above the calendar are gone, but the counts
+  // they showed still drive the sidebar badge, the bell, and the focus panel.
   function renderKpis() {
     const todays = tasks.filter(function (t) { return t.day === todayDate; });
     const todayDone = todays.filter(function (t) { return t.done; }).length;
-    const weekDone = tasks.filter(function (t) { return t.done; }).length;
     const openIssues = complaints.filter(function (c) { return c.status !== "closed"; }).length;
 
-    document.getElementById("kpiToday").textContent = todays.length;
-    document.getElementById("kpiTodayFoot").textContent = todayDone + " completed so far";
-    document.getElementById("kpiDone").textContent = weekDone;
-    document.getElementById("kpiDoneFoot").textContent = "of " + tasks.length + " logged tasks";
-    document.getElementById("kpiIssues").textContent = openIssues;
     document.getElementById("navComplaintCount").textContent = openIssues;
     document.getElementById("bellBadge").textContent = openIssues;
     document.getElementById("bellBtn").title = openIssues + " unresolved issue" + (openIssues === 1 ? "" : "s");
