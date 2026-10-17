@@ -7,7 +7,7 @@
  *
  * Endpoints
  *   GET  /api/health                  -> { ok, tasks, complaints, shopping }
- *   GET  /api/board                   -> { tasks, complaints, shopping, recurring }
+ *   GET  /api/board                   -> { tasks, complaints, shopping, recurring, requests }
  *   PUT  /api/board                   -> replace the board, returns the stored copy
  *   GET  /api/events                  -> server-sent events, pushed on every change
  *
@@ -17,6 +17,7 @@
  */
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readAll, replaceBoard, isSeeded, db } from "./db.mjs";
@@ -25,11 +26,20 @@ import { seedIfEmpty } from "./seed.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const port = Number(process.env.PORT) || 3000;
+// Bind to every interface by default: a container host routes traffic to the
+// container's own address, so listening only on loopback would make a deployed
+// instance unreachable even though it started cleanly.
+const host = process.env.HOST || "0.0.0.0";
 
 // Requests carrying this token may write. When it is unset the API stays open,
 // which is convenient locally and wrong on the public internet -- the startup
 // banner says so loudly.
 const WRITE_TOKEN = process.env.SHARONDALE_TOKEN || "";
+
+// Which SQLite file is in use. Reported by /api/health so a deployment can be
+// checked from outside: on a host with an ephemeral filesystem the board silently
+// resets on every deploy, and the only way to see that is to look at the path.
+const DB_FILE = process.env.SHARONDALE_DB || path.join(root, "data", "sharondale.db");
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -147,6 +157,23 @@ function validateBoard(body) {
       });
     }
   }
+  if (body.requests !== undefined) {
+    if (!Array.isArray(body.requests)) {
+      errors.push("requests must be an array.");
+    } else {
+      body.requests.forEach((r, i) => {
+        if (typeof r.title !== "string" || !r.title.trim()) errors.push(`requests[${i}].title is required.`);
+        if (typeof r.location !== "string" || !r.location.trim()) errors.push(`requests[${i}].location is required.`);
+        if (!["low", "medium", "high"].includes(r.priority)) errors.push(`requests[${i}].priority is invalid.`);
+        // A request is either waiting to be picked up or has been moved onto
+        // the board; anything else would lose it from both lists.
+        if (r.status !== undefined && !["pending", "moved"].includes(r.status)) {
+          errors.push(`requests[${i}].status is invalid.`);
+        }
+        if (r.id === undefined || r.id === null) errors.push(`requests[${i}].id is required.`);
+      });
+    }
+  }
   return errors;
 }
 
@@ -161,7 +188,12 @@ async function handleApi(req, res, pathname) {
       tasks: board.tasks.length,
       complaints: board.complaints.length,
       shopping: board.shopping.length,
+      requests: board.requests.length,
       writesProtected: !!WRITE_TOKEN,
+      // Where the data actually lives. A path under /tmp or a path that is not
+      // writable means the board will not survive a restart. A ":memory:"
+      // database is thrown away when the process exits.
+      database: DB_FILE === ":memory:" ? ":memory: (not persisted)" : DB_FILE,
     });
   }
 
@@ -222,6 +254,9 @@ async function handleApi(req, res, pathname) {
         // the full list, so an empty array there genuinely clears the roster.
         people: body.people === undefined ? null : body.people,
         phonebook: body.phonebook === undefined ? null : body.phonebook,
+        // Same partial-write rule for the request log: the Task requests screen
+        // sends it whole, while a partial writer leaves it alone.
+        requests: body.requests === undefined ? null : body.requests,
       });
       broadcast();
       return sendJson(res, 200, { ok: true, board: saved });
@@ -297,17 +332,40 @@ const server = http.createServer(async (req, res) => {
 
 seedIfEmpty();
 
-server.listen(port, () => {
+// Startup diagnostics. Two failure modes are invisible from the dashboard -- an
+// unprotected board and a database that will not survive a restart -- so they
+// are reported here, where a host's log captures them on every deploy.
+function reportStorageRisk() {
+  if (DB_FILE === ":memory:") {
+    console.log("NOTE: using an in-memory database. Nothing is persisted.");
+    return;
+  }
+  // A path under the OS temp directory, or one that cannot be written, is lost
+  // when the instance is replaced. That is the single most common way a deployed
+  // board silently resets, so say so plainly rather than discovering it later.
+  const tmp = os.tmpdir();
+  const looksEphemeral = path.resolve(DB_FILE).startsWith(path.resolve(tmp));
+  if (looksEphemeral) {
+    console.log("");
+    console.log("WARNING: the database is inside the temporary directory (" + tmp + ").");
+    console.log("The board will be LOST when this instance restarts. Mount a");
+    console.log("persistent volume and point SHARONDALE_DB at it.");
+  }
+}
+
+server.listen(port, host, () => {
   const board = readAll();
-  console.log(`Sharondale backend listening on http://localhost:${port}`);
+  console.log(`Sharondale backend listening on http://${host}:${port}`);
   console.log(`Dashboard:  http://localhost:${port}/`);
-  console.log(`Board holds ${board.tasks.length} tasks, ${board.complaints.length} complaints, ${board.shopping.length} shopping items.`);
+  console.log(`Database:   ${DB_FILE}`);
+  console.log(`Board holds ${board.tasks.length} tasks, ${board.complaints.length} complaints, ${board.shopping.length} shopping items, ${board.requests.length} task requests.`);
   if (!WRITE_TOKEN) {
     console.log("");
     console.log("WARNING: writes are UNPROTECTED (SHARONDALE_TOKEN is not set).");
     console.log("Anyone who can reach this port can change the board. Set");
     console.log("SHARONDALE_TOKEN before exposing it to the internet.");
   }
+  reportStorageRisk();
 });
 
 // Hosts send SIGTERM on deploy or restart. Close the open event streams and the

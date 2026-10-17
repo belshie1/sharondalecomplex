@@ -1,0 +1,53 @@
+# Fly.io deployment for Sharondale.
+#
+#   fly launch --no-deploy --copy-config
+#   fly volumes create sharondale_data --size 1 --region <your-region>
+#   fly secrets set SHARONDALE_TOKEN="$(openssl rand -hex 24)"
+#   fly deploy
+#
+# The volume is the important part: without it the SQLite file lives on the
+# instance's ephemeral disk and the board resets on every deploy.
+app = "sharondale"
+primary_region = "jnb"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  # Must match the mount destination below.
+  SHARONDALE_DB = "/app/data/sharondale.db"
+
+# One machine only. The board is a single SQLite file, so a second instance
+# would run its own copy of the database and the two would diverge. Scale up
+# rather than out, or move to Postgres first.
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 40
+    hard_limit = 60
+
+# Persistent storage for the database.
+[[mounts]]
+  source = "sharondale_data"
+  destination = "/app/data"
+
+# The app has no external dependencies, but Fly uses this to decide whether a
+# deploy succeeded. It touches the database as well as the HTTP layer.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[checks.health]
+  type = "http"
+  port = 3000
+  path = "/api/health"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"

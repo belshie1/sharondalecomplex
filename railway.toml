@@ -1,0 +1,26 @@
+# Railway deployment for Sharondale.
+#
+# Railway builds the Dockerfile and runs one service. Two things must be set in
+# the service's Variables tab before the URL is public:
+#
+#   SHARONDALE_TOKEN   the write access code (openssl rand -hex 24)
+#   SHARONDALE_DB      /app/data/sharondale.db
+#
+# and a **Volume** must be attached with its mount path set to /app/data.
+# Without the volume the SQLite file sits on the container's ephemeral disk and
+# the board resets on every deploy. Railway sets PORT itself.
+#
+# One replica only: the board is a single SQLite file, so a second replica would
+# run its own copy of the database and the two would diverge.
+
+[build]
+  builder = "DOCKERFILE"
+  dockerfilePath = "Dockerfile"
+
+[deploy]
+  startCommand = "node server/index.mjs"
+  healthcheckPath = "/api/health"
+  healthcheckTimeout = 10
+  restartPolicyType = "ON_FAILURE"
+  restartPolicyMaxRetries = 10
+  # Replicas are set in the dashboard; keep it at 1.

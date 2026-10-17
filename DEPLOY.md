@@ -1,27 +1,95 @@
 # Deploying Sharondale
 
-The app has two parts:
+The app has two parts, and **they must be deployed together**:
 
 - a **dashboard** (static HTML/CSS/JS in `dashboard/`)
-- a **backend** (a Node API over a database in `server/`)
+- a **backend** (a Node API over a SQLite database in `server/`)
 
-They can be hosted together on one Node host, or split - which is what Netlify
-requires, because Netlify serves the static files and runs the API as serverless
-functions.
+The backend serves the dashboard, so this is **one service and one URL**.
 
-Two things must be right whatever you choose:
+## Read this first: a static host is not enough
 
-1. **The database must be persistent.** A file on disk does not survive a deploy
-   on most hosts, so the board would reset.
-2. **Writes must be protected.** Otherwise anyone who finds the URL can change or
-   wipe the board.
+The dashboard used to be published to GitHub Pages, and that was a mistake worth
+understanding before choosing a host.
+
+GitHub Pages serves static files only. It cannot run `server/index.mjs`, so
+`/api/*` returned 404 and **nothing was ever saved**. It looked fine, because
+`dashboard/app.js` ships a hardcoded fallback board that looks just like the
+seeded data - a visitor saw a fully populated dashboard. The only clue was the
+header chip reading **"Offline - will retry"** and an activity entry saying
+*"Cannot reach the server and no offline copy exists"*.
+
+The Pages workflow has been removed. **Do not put this app on a static-only
+host** (GitHub Pages, plain S3, a CDN) unless you only want a demo. If you keep
+the dashboard static and host the API elsewhere, point it at the API with:
+
+```html
+<script>window.SHARONDALE_API = "https://your-api.example.com/api";</script>
+```
+
+placed in `dashboard/index.html` before `app.js` loads. The API must then send
+`Access-Control-Allow-Origin` for the dashboard's origin, which this backend does
+not do yet.
 
 ---
 
-## Option A - Single Node host (simplest)
+## The two things that must be right
 
-The backend already serves the dashboard, so this needs one service and no
-changes. Works on Railway, Fly.io, Koyeb, a VPS, or anything that runs Docker.
+1. **The database must be persistent.** A file on the instance's disk does not
+   survive a deploy or a restart on most hosts, so the board would silently
+   reset. Attach a volume and point `SHARONDALE_DB` at it.
+2. **Writes must be protected.** Without `SHARONDALE_TOKEN` anyone who finds the
+   URL can change or wipe the board.
+
+The server warns about both at startup, and `/api/health` reports the database
+path so you can check it from outside.
+
+---
+
+## Option A - Fly.io (recommended)
+
+`fly.toml` is already in the repo. Fly volumes are straightforward, which makes
+the persistent-database requirement easy to satisfy.
+
+```bash
+fly launch --no-deploy --copy-config
+fly volumes create sharondale_data --size 1 --region jnb
+fly secrets set SHARONDALE_TOKEN="$(openssl rand -hex 24)"
+fly deploy
+```
+
+Then check it:
+
+```bash
+fly open /api/health
+```
+
+Expect `"writesProtected": true` and a `database` path under `/app/data`.
+
+## Option B - Railway
+
+`railway.toml` is in the repo. Railway builds the `Dockerfile`.
+
+1. Create a project from this repo.
+2. **Add a Volume** mounted at `/app/data`. Without this the board resets on
+   every deploy.
+3. Set variables: `SHARONDALE_DB=/app/data/sharondale.db` and
+   `SHARONDALE_TOKEN=<your code>`.
+4. Keep replicas at **1**.
+
+## Option C - Render
+
+`render.yaml` is a blueprint that declares the disk and the environment. Commit
+it, then create a Blueprint instance from the repo and set `SHARONDALE_TOKEN` in
+the dashboard when prompted.
+
+## Option D - Koyeb
+
+`koyeb.yaml` describes the service. Deploy from the `Dockerfile`, then add a
+volume at `/app/data`, set `SHARONDALE_DB=/app/data/sharondale.db`, set
+`SHARONDALE_TOKEN`, and keep the instance count at 1.
+
+## Option E - Docker on a VPS
 
 ```bash
 docker build -t sharondale .
@@ -33,41 +101,34 @@ docker run -d --name sharondale \
 ```
 
 `-v sharondale-data:/app/data` is the persistent volume - **do not omit it**.
+Put HTTPS in front (Caddy or nginx).
+
+---
+
+## Why one instance only
+
+The board is a single SQLite file. Two instances would each hold their own copy
+and the two would diverge, so every option above pins the service to one
+instance. If you need more than one - or more than a handful of users - move to
+Postgres first. `server/db.mjs` is the only file that touches storage: it exports
+`readAll`, `replaceBoard`, `isSeeded` and `closeDb`, so the schema and queries
+carry over.
+
+Note that the server-sent-events stream (`/api/events`) is what makes a change on
+one device appear on another without a reload. It needs a host that allows a
+long-lived HTTP response. If a platform buffers or times out that stream, the
+dashboard still works - it just refreshes on the next load instead of live.
+
+---
+
+## Environment variables
 
 | Variable | Purpose |
 | --- | --- |
 | `PORT` | Port to listen on. Most hosts set this for you. |
-| `SHARONDALE_TOKEN` | Required to make writes safe. |
+| `SHARONDALE_TOKEN` | **Required in production.** The write access code. |
 | `SHARONDALE_DB` | Path to the database, e.g. `/app/data/sharondale.db`. |
-
-Then mount a volume at the database's directory and put HTTPS in front.
-
-## Option B - Netlify
-
-Netlify serves the dashboard and runs the API as serverless functions. That means
-**SQLite cannot be used**: Netlify's filesystem is ephemeral, so a writable
-`.db` file is lost between requests. The database has to move to a hosted one -
-[Netlify Database](https://docs.netlify.com/build/data-and-storage/netlify-database/)
-is built into the platform and is the least moving parts.
-
-This is a port, not a configuration change. What it involves:
-
-1. The API routes in `server/index.mjs` become Netlify Functions.
-2. `server/db.mjs` is reimplemented against Postgres. It is the only file that
-   touches storage - it exports `readAll`, `replaceBoard`, `isSeeded` and
-   `closeDb` - so the schema and queries carry over.
-3. **Live sync changes.** Serverless functions cannot hold a server-sent-events
-   stream open, so the dashboard polls for changes instead of receiving them.
-4. Claim the database branch; an unclaimed Netlify database is deleted after a
-   period, taking its data with it.
-
-The dashboard's API contract stays the same, so `app.js` needs little change.
-
-## Option C - Fly.io / Railway / a VPS
-
-Use the same `Dockerfile` as Option A, with a volume mounted at the database's
-directory. On Fly that is `fly volumes create` plus a `[mounts]` entry; on
-Railway it is a volume on the service.
+| `HOST` | Interface to bind. Defaults to `0.0.0.0`. |
 
 ---
 
@@ -111,16 +172,57 @@ cookie) before putting it on a public URL.
 ## Checking a deployment
 
 ```bash
+BASE_URL=https://your-app.example.com node tests/verify-deploy.mjs
+```
+
+This is the check that would have caught the broken Pages deployment. It fails
+with a specific reason if any of these is wrong:
+
+- the dashboard is not served,
+- `/api/health` 404s (no backend deployed),
+- the database is in memory or in a temp directory (the board will not survive),
+- `writesProtected` is false (the board is publicly writable),
+- the board cannot be read, or an unauthenticated write is not refused with 401.
+
+You can also check by hand:
+
+```bash
 curl https://your-app.example.com/api/health
 ```
 
 ```json
-{"ok":true,"seeded":true,"tasks":12,"complaints":5,"shopping":4,"writesProtected":true}
+{
+  "ok": true,
+  "seeded": true,
+  "tasks": 12,
+  "complaints": 5,
+  "shopping": 4,
+  "requests": 3,
+  "writesProtected": true,
+  "database": "/app/data/sharondale.db"
+}
 ```
 
 `writesProtected: true` means the token is set. If it is `false`, **the board is
-publicly writable** - anyone who finds the URL can change or wipe it - and you
-should set the token immediately.
+publicly writable** - set the token immediately. If `database` is missing, the
+backend is out of date; if it contains `:memory:` or a `/tmp/` path, the board
+will not survive a restart.
+
+### Continuous verification
+
+`.github/workflows/verify-deploy.yml` runs that same check on every push to
+`main`, daily, and on demand. Set a repository variable so it knows where to
+look:
+
+**Settings -> Secrets and variables -> Actions -> Variables -> New variable**
+
+| Name | Value |
+| --- | --- |
+| `SHARONDALE_URL` | `https://your-app.example.com` |
+
+Until that variable is set the workflow skips instead of failing. Once it is
+set, a red check means the live app is genuinely broken - which is what the old
+Pages workflow never did.
 
 ---
 
@@ -128,6 +230,8 @@ should set the token immediately.
 
 - **No login.** Anyone with the URL can *view* the board. Adding the token stops
   them changing it, but not reading it.
+- **No CORS.** The API answers same-origin requests only, which is why the
+  dashboard and the API should be deployed together.
 - **SQLite on one instance.** This suits a single building with a handful of
   users. If several instances run behind a load balancer they would each need
   their own database, so move to Postgres first - `server/db.mjs` is the only

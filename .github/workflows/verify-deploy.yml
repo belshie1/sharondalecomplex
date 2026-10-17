@@ -1,0 +1,59 @@
+name: Verify deployment
+
+# Checks a *running* deployment, not the source code. The previous Pages workflow
+# published only the static dashboard and went green every time, which hid the
+# fact that no backend was ever deployed: the site loaded, but /api/* returned
+# 404 and nothing was ever saved.
+#
+# Point this at your deployment by setting a repository variable:
+#   Settings -> Secrets and variables -> Actions -> Variables
+#   SHARONDALE_URL = https://your-app.example.com
+#
+# Until that variable is set the workflow skips rather than failing, so it is
+# safe to merge before the host exists.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily at 06:00 UTC. A deploy can rot later (a volume detaches, a secret is
+    # cleared, a free instance is suspended), and only a live check catches that.
+    - cron: "0 6 *"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check whether a deployment URL is configured
+        id: cfg
+        run: |
+          if [ -z "${{ vars.SHARONDALE_URL }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "SHARONDALE_URL repository variable is not set - skipping."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.cfg.outputs.configured == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        if: steps.cfg.outputs.configured == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The API must answer, must report that it is backed by a real database,
+      # and must report that writes are protected. A 404 here means the backend
+      # was never deployed; writesProtected:false means the board is publicly
+      # writable.
+      - name: Verify the live deployment
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          BASE_URL: ${{ vars.SHARONDALE_URL }}
+        run: node tests/verify-deploy.mjs

@@ -62,6 +62,10 @@ export async function resetBoard(page, { reload = true } = {}) {
         { id: "qa-c1", name: "QA Emergency Line", company: "QA Residence", phone: "011 555 0100", note: "24 hours" },
         { id: "qa-c2", name: "QA Plumbing", company: "QA Plumbing CC", phone: "011 555 0142", note: "Leaks" },
       ],
+      requests: [
+        { id: "qa-r1", title: "QA request gate remote", location: "Main entrance", priority: "medium", requestedBy: "L. Marchetti", note: "Only works up close.", status: "pending" },
+        { id: "qa-r2", title: "QA request stairwell handrail", location: "Block B - Stairwell", priority: "low", requestedBy: "S. Haddad", note: "", status: "pending" },
+      ],
     };
 
     await fetch("/api/board", {
@@ -79,7 +83,8 @@ export async function resetBoard(page, { reload = true } = {}) {
       const current = await res.json();
       const hasRoster = Array.isArray(current.people) && current.people.length === board.people.length;
       const hasContacts = Array.isArray(current.phonebook) && current.phonebook.length === board.phonebook.length;
-      const matches = hasRoster && hasContacts && current.tasks.length === expected &&
+      const hasRequests = Array.isArray(current.requests) && current.requests.length === board.requests.length;
+      const matches = hasRoster && hasContacts && hasRequests && current.tasks.length === expected &&
         current.shopping.length === board.shopping.length;
       if (matches) break;
       await new Promise(r => setTimeout(r, 100));

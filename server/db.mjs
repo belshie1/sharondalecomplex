@@ -101,6 +101,24 @@ db.exec(`
     sort_order INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
   );
+
+  -- Task requests are work that has been reported but not yet accepted onto the
+  -- weekly board: a request is logged here first, and only becomes a task when
+  -- the caretaker moves it across. They are kept apart from the tasks table on
+  -- purpose, so the calendar and the weekly report never count something that
+  -- nobody has agreed to do yet.
+  CREATE TABLE IF NOT EXISTS task_requests (
+    id           TEXT PRIMARY KEY,
+    title        TEXT NOT NULL,
+    location     TEXT NOT NULL,
+    priority     TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
+    requested_by TEXT NOT NULL DEFAULT '',
+    note         TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','moved')),
+    task_id      TEXT,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    updated_at   TEXT NOT NULL
+  );
 `);
 
 // Lightweight migrations for databases created before a column existed.
@@ -165,6 +183,19 @@ function phonebookFromRow(r) {
   };
 }
 
+function taskRequestFromRow(r) {
+  return {
+    id: r.id,
+    title: r.title,
+    location: r.location,
+    priority: r.priority,
+    requestedBy: r.requested_by || "",
+    note: r.note || "",
+    status: r.status,
+    taskId: r.task_id,
+  };
+}
+
 /* -------------------------------- reads -------------------------------- */
 
 export function readAll() {
@@ -199,7 +230,11 @@ export function readAll() {
     .prepare("SELECT * FROM phonebook ORDER BY sort_order ASC, name ASC")
     .all()
     .map(phonebookFromRow);
-  return { tasks, complaints, shopping, recurring, people, phonebook };
+  const requests = db
+    .prepare("SELECT * FROM task_requests ORDER BY sort_order ASC, updated_at ASC")
+    .all()
+    .map(taskRequestFromRow);
+  return { tasks, complaints, shopping, recurring, people, phonebook, requests };
 }
 
 export function isSeeded() {
@@ -226,7 +261,7 @@ const upsertTask = () =>
  * board write is both simpler and safer than diffing every field client-side:
  * a half-applied drag can never be stored.
  */
-export function replaceBoard({ tasks = [], complaints = [], shopping = [], recurring = [], people = null, phonebook = null }) {
+export function replaceBoard({ tasks = [], complaints = [], shopping = [], recurring = [], people = null, phonebook = null, requests = null }) {
   const writeTasks = upsertTask();
   const writeComplaint = db.prepare(`
     INSERT INTO complaints (id,owner,apt,type,age,status,note,updated_at)
@@ -260,6 +295,14 @@ export function replaceBoard({ tasks = [], complaints = [], shopping = [], recur
     VALUES (:id,:name,:company,:phone,:note,:sortOrder,:updatedAt)
     ON CONFLICT(id) DO UPDATE SET
       name=:name, company=:company, phone=:phone, note=:note,
+      sort_order=:sortOrder, updated_at=:updatedAt
+  `);
+  const writeRequest = db.prepare(`
+    INSERT INTO task_requests (id,title,location,priority,requested_by,note,status,task_id,sort_order,updated_at)
+    VALUES (:id,:title,:location,:priority,:requestedBy,:note,:status,:taskId,:sortOrder,:updatedAt)
+    ON CONFLICT(id) DO UPDATE SET
+      title=:title, location=:location, priority=:priority,
+      requested_by=:requestedBy, note=:note, status=:status, task_id=:taskId,
       sort_order=:sortOrder, updated_at=:updatedAt
   `);
 
@@ -409,6 +452,33 @@ export function replaceBoard({ tasks = [], complaints = [], shopping = [], recur
         ).run(...contactIds);
       } else {
         db.prepare("DELETE FROM phonebook").run();
+      }
+    }
+
+    // The request log follows the same partial-write rule as the roster and the
+    // phonebook: an omitted key leaves it untouched, an empty array clears it.
+    if (requests !== null) {
+      requests.forEach((r, i) => {
+        writeRequest.run({
+          id: String(r.id),
+          title: r.title,
+          location: r.location,
+          priority: r.priority,
+          requestedBy: r.requestedBy || "",
+          note: r.note || "",
+          status: r.status === "moved" ? "moved" : "pending",
+          taskId: r.taskId ? String(r.taskId) : null,
+          sortOrder: i,
+          updatedAt: ts,
+        });
+      });
+      const requestIds = requests.map((r) => String(r.id));
+      if (requestIds.length) {
+        db.prepare(
+          `DELETE FROM task_requests WHERE id NOT IN (${requestIds.map(() => "?").join(",")})`
+        ).run(...requestIds);
+      } else {
+        db.prepare("DELETE FROM task_requests").run();
       }
     }
 

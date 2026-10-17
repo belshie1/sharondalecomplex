@@ -1,0 +1,36 @@
+# Koyeb deployment for Sharondale.
+#
+# Deploy from the Dockerfile, then in the Koyeb console:
+#
+#   1. Add a Volume mounted at /app/data   (otherwise the board resets)
+#   2. Set SHARONDALE_TOKEN                (otherwise anyone can edit the board)
+#   3. Set SHARONDALE_DB = /app/data/sharondale.db
+#   4. Keep the instance count at 1
+#
+# Koyeb sets PORT itself; the Dockerfile already exposes 3000.
+
+name: sharondale
+service:
+  type: web
+  instance:
+    type: nano
+    # One instance only: the board is a single SQLite file, so a second instance
+    # would run its own copy and the two would diverge.
+    count: 1
+  ports:
+    - port: 3000
+      protocol: http
+  healthchecks:
+    - path: /api/health
+      port: 3000
+      protocol: http
+      interval: 30
+      timeout: 5
+      grace_period: 10
+  env:
+    - key: SHARONDALE_DB
+      value: /app/data/sharondale.db
+    # Set SHARONDALE_TOKEN in the console, not here.
+  volumes:
+    - id: sharondale-data
+      path: /app/data

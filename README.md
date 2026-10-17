@@ -28,6 +28,12 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - Mark tasks complete for the day
 - Review complaints and owner reports
 - Create a task directly from a complaint
+- Log required work as a **task request** first, then move it onto the board: the
+  Task requests screen is a table of everything reported but not yet accepted,
+  with an **Add task request** button. **Move to task** turns a request into an
+  unscheduled task in one click, and the row stays behind marked *Moved to tasks*.
+  Nothing in the log is counted by the calendar, the counters or the weekly
+  report until it is moved
 - Close complaints with a recorded action
 - Delete a complaint or owner report, behind the same password as task removal
 - Review the weekly report and save it as a **PDF** (print-ready, with a plain-text export alongside)
@@ -38,7 +44,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 
 - `dashboard/index.html` - application markup
 - `dashboard/styles.css` - visual design and responsive layout
-- `dashboard/app.js` - task, complaint, calendar, photo, and report interactions
+- `dashboard/app.js` - task, request, complaint, calendar, photo, and report interactions
 - `server/index.mjs` - the backend: HTTP API plus static serving of the dashboard
 - `server/db.mjs` - SQLite schema and the only code that touches storage
 - `server/seed.mjs` - seeds a brand-new database with the starter board
@@ -49,11 +55,13 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - `tests/qa-shopping.mjs` - browser QA script covering the shopping list, tick-to-remove, and persistence
 - `tests/qa-people.mjs` - browser QA script covering the People roster and the Created by field
 - `tests/qa-phonebook.mjs` - browser QA script covering the phonebook contacts, tap-to-call links, and persistence
+- `tests/qa-requests.mjs` - browser QA script covering the task request log, the add-request button, and moving a request onto the board
 - `tests/qa-report.mjs` - browser QA script covering the printable PDF report
 - `tests/qa-complaint-delete.mjs` - browser QA script covering password-protected deletion of complaints and reports, and that the deletion is saved to the server
 - `tests/qa-token.mjs` - browser QA script covering the access-code lock
 - `tests/run-all.mjs` - runs every QA suite against a throwaway backend (`npm test`)
 - `tests/qa-backend.mjs` - proves data is stored server-side and visible from a second device
+- `tests/verify-deploy.mjs` - checks a *running* deployment: backend reachable, database persistent, writes protected
 - `tests/helpers.mjs` - shared QA helpers, including a board reset
 - `tests/serve.mjs` - minimal static-only server, for working on the UI without the API
 
@@ -93,16 +101,23 @@ server returns. It is a mirror of the server, never the source of truth.
 
 ## Deploying it to a cloud host
 
-See **[DEPLOY.md](DEPLOY.md)** for the full walkthrough - it covers a single Node
-host (Docker), Netlify, and Fly/Railway/VPS, plus how to generate and apply the
-write token.
+See **[DEPLOY.md](DEPLOY.md)** for the full walkthrough - it covers Fly.io, Railway,
+Render, Koyeb and a plain Docker VPS, plus how to generate and apply the write
+token.
+
+**This app needs a host that runs Node.** It is a backend and a dashboard in one
+service, so a static-only host (GitHub Pages, plain S3, a CDN) cannot run it: the
+page would load, but `/api/*` would 404 and nothing would ever be saved. The
+dashboard ships a hardcoded fallback board that looks like real data, so this
+failure is easy to miss - the tell is the header chip reading **Offline - will
+retry**.
 
 In short, two things matter:
 
 1. **Keep the database persistent.** Most hosts have an ephemeral filesystem, so
    without this the board resets on every deploy. Set `SHARONDALE_DB` to a path
-   on a mounted volume, or mount it at `/app/data`. On Netlify, SQLite cannot be
-   used at all: the database has to move to Postgres.
+   on a mounted volume, or mount the volume at `/app/data`. The server warns at
+   startup if the database is in a temp directory.
 2. **Set `SHARONDALE_TOKEN`** before the URL is public, or anyone who finds it can
    change the board. There is nothing to paste into the repo: open the dashboard
    once and enter the code when prompted. It is stored in that browser and never
@@ -113,11 +128,30 @@ Deploy artefacts included in the repo:
 | File | Purpose |
 |---|---|
 | `Dockerfile` | Self-contained image, no build step, health check included. |
+| `fly.toml` | Fly.io: service, volume mount and health check. |
+| `railway.toml` | Railway: Dockerfile build, health check, restart policy. |
+| `render.yaml` | Render blueprint, including the disk. |
+| `koyeb.yaml` | Koyeb service, port and volume. |
 | `Procfile` | For buildpack-based hosts such as Heroku. |
-| `.dockerignore` | Keeps local data and secrets out of the image. |
+| `.dockerignore` | Keeps local data, tests and secrets out of the image. |
+
+Run the service as **one instance**. The board is a single SQLite file, so two
+instances would each hold their own copy and diverge.
 
 `server/db.mjs` is the only file that touches storage, so moving to Postgres or
 Supabase means rewriting that one file.
+
+### Checking a live deployment
+
+```bash
+BASE_URL=https://your-app.example.com npm run verify:deploy
+```
+
+This fails with a specific reason if the backend is missing, the database is not
+persistent, writes are unprotected, or an unauthenticated write is not refused.
+`.github/workflows/verify-deploy.yml` runs the same check on every push to `main`
+and daily - set the `SHARONDALE_URL` repository variable to enable it. It skips
+rather than fails while that variable is unset.
 
 The roster of people lives on the server too, so a name added on one device is
 immediately available everywhere.
@@ -126,8 +160,8 @@ immediately available everywhere.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/api/health` | Counts and whether writes are protected. |
-| `GET` | `/api/board` | The whole board: tasks, complaints, shopping, recurring, people, phonebook. |
+| `GET` | `/api/health` | Counts, whether writes are protected, and the database path. |
+| `GET` | `/api/board` | The whole board: tasks, complaints, shopping, recurring, people, phonebook, requests. |
 | `PUT` | `/api/board` | Replace the whole board (validation errors return 400 with details). |
 | `GET` | `/api/events` | Server-sent events; pushes `board` on every accepted write. |
 

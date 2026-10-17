@@ -2,6 +2,7 @@
 node_modules
 npm-debug.log*
 .git
+.github
 .gitignore
 tests
 data
@@ -14,6 +15,12 @@ data
 .idea
 .DS_Store
 README.md
+DEPLOY.md
 Dockerfile
 .dockerignore
 sharondale-weekly-report.csv
+# Host config files are read by the platform, not by the app.
+fly.toml
+railway.toml
+render.yaml
+koyeb.yaml

@@ -69,6 +69,12 @@
   // the roster because they are people to phone, not people to assign work to.
   let phonebook = [];
   let phonebookUid = 1;
+  // Work that has been reported but not yet accepted onto the board. A request is
+  // deliberately NOT a task: it does not appear on the calendar, in the counters
+  // or in the weekly report until the caretaker moves it across, so logging what
+  // an owner asks for never inflates the week's figures.
+  let requests = [];
+  let requestUid = 1;
   const UNASSIGNED = "";
   function assigneeLabel(value) {
     return value ? value : "Unassigned";
@@ -181,6 +187,28 @@
     return i && typeof i.id === "number" && typeof i.label === "string" &&
       i.label.trim().length > 0;
   }
+  // A request id is either a string ("r-1" from the seed) or a number, and an
+  // unrecognised status would hide the row from both the pending and the moved
+  // list, so both are checked before the row is allowed onto the screen.
+  function isValidRequest(r) {
+    return r && (typeof r.id === "number" || typeof r.id === "string") &&
+      typeof r.title === "string" && r.title.trim().length > 0 &&
+      typeof r.location === "string" &&
+      ["low", "medium", "high"].indexOf(r.priority) !== -1 &&
+      ["pending", "moved"].indexOf(r.status) !== -1;
+  }
+  function normalizeRequest(r) {
+    return {
+      id: r.id, title: r.title, location: r.location, priority: r.priority,
+      requestedBy: typeof r.requestedBy === "string" ? r.requestedBy : "",
+      note: typeof r.note === "string" ? r.note : "",
+      status: r.status, taskId: r.taskId === undefined ? null : r.taskId
+    };
+  }
+  // A chip reading "high" is easier to scan than a bare word in a table cell.
+  function priorityLabel(value) {
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  }
   function normalizeTask(t) {
     return {
       id: t.id, title: t.title, location: t.location,
@@ -203,7 +231,8 @@
       shopping: shopping,
       recurring: recurringTasks,
       people: people,
-      phonebook: phonebook
+      phonebook: phonebook,
+      requests: requests
     };
   }
 
@@ -301,7 +330,8 @@
         shopping: (board.shopping || []).filter(isValidShoppingItem),
         recurring: board.recurring || [],
         people: board.people || [],
-        phonebook: board.phonebook || []
+        phonebook: board.phonebook || [],
+        requests: (board.requests || []).filter(isValidRequest).map(normalizeRequest)
       };
     } catch (error) {
       serverReachable = false;
@@ -318,7 +348,8 @@
         shopping: (cached.shopping || []).filter(isValidShoppingItem),
         recurring: cached.recurring || [],
         people: cached.people || [],
-        phonebook: cached.phonebook || []
+        phonebook: cached.phonebook || [],
+        requests: (cached.requests || []).filter(isValidRequest).map(normalizeRequest)
       };
     }
   }
@@ -453,6 +484,7 @@
       toast("Unlocked - you can now make changes");
       renderAll();
       renderComplaints();
+      renderRequests();
       renderShopping();
       renderPeople();
       renderPhonebook();
@@ -1212,6 +1244,148 @@
     ownerInput.focus();
   });
 
+  /* ---------------- Task requests ---------------- */
+  // The log of work that still has to be turned into board tasks. Two statuses:
+  // "pending" (waiting to be picked up) and "moved" (it became a task, and the
+  // row keeps a record of which one). A row is never a task itself, so nothing
+  // here reaches the calendar, the counters or the weekly report until it is
+  // moved across with the Move to task button.
+  function requestIndex(id) {
+    return requests.findIndex(function (r) { return String(r.id) === String(id); });
+  }
+
+  function requestRowHtml(r) {
+    const moved = r.status === "moved";
+    const linked = moved && r.taskId !== null && r.taskId !== undefined &&
+      findTask(r.taskId) ? findTask(r.taskId) : null;
+    return '<div class="request-row ' + (moved ? 'moved' : '') + '" data-id="' + escapeHtml(r.id) + '">' +
+      '<div class="r-what">' +
+        '<div class="r-title">' + escapeHtml(r.title) + '</div>' +
+        '<div class="r-loc">' + escapeHtml(r.location) + '</div>' +
+        (r.note ? '<div class="r-note">' + escapeHtml(r.note) + '</div>' : '') +
+      '</div>' +
+      '<div><span class="priority-chip ' + r.priority + '">' + priorityLabel(r.priority) + '</span></div>' +
+      '<div>' + (r.requestedBy
+        ? '<span class="r-by">' + escapeHtml(r.requestedBy) + '</span>'
+        : '<span class="r-none">Not recorded</span>') + '</div>' +
+      '<div><span class="status-chip ' + r.status + '">' + (moved ? "Moved to tasks" : "Pending") + '</span></div>' +
+      '<div class="r-actions">' +
+        (moved
+          ? '<span class="r-none">' + (linked ? 'On the board as "' + escapeHtml(linked.title) + '"' : "Task since removed") + '</span>'
+          : '<button type="button" class="btn btn-primary btn-sm act-move">' +
+            '<svg class="icon" viewBox="0 0 24 24"><path d="M4 12h14"/><path d="M13 7l5 5-5 5"/></svg>' +
+            'Move to task</button>') +
+        '<button type="button" class="btn btn-ghost btn-sm act-remove" aria-label="Delete request ' + escapeHtml(r.title) + '" title="Delete request">Delete</button>' +
+      '</div>' +
+      '</div>';
+  }
+
+  function renderRequests() {
+    const list = document.getElementById("requestsList");
+    if (!list) return;
+
+    const pending = requests.filter(function (r) { return r.status !== "moved"; });
+    document.getElementById("navRequestCount").textContent = pending.length;
+    const summary = document.getElementById("requestsSummary");
+    summary.textContent = requests.length === 0
+      ? "Nothing logged yet"
+      : pending.length === 0
+        ? "Nothing waiting - every request has been moved to tasks"
+        : pending.length + (pending.length === 1 ? " request" : " requests") + " waiting to be moved to tasks";
+
+    if (requests.length === 0) {
+      list.innerHTML = '<p class="requests-empty">Log work reported to you here, then move it onto the board when you pick it up.</p>';
+      return;
+    }
+
+    list.innerHTML = requests.map(requestRowHtml).join("");
+
+    list.querySelectorAll(".act-move").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        moveRequestToTask(btn.closest(".request-row").dataset.id);
+      });
+    });
+    list.querySelectorAll(".act-remove").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        removeRequest(btn.closest(".request-row").dataset.id);
+      });
+    });
+  }
+
+  // The move itself: the request becomes a real task on the board (parked in
+  // Unscheduled, where a new task with no agreed date belongs) and the row stays
+  // behind as a "moved" record that links back to the task it produced.
+  function moveRequestToTask(id) {
+    const index = requestIndex(id);
+    if (index === -1) return;
+    const request = requests[index];
+    if (request.status === "moved") return;
+    const taskId = uid++;
+    tasks.push({
+      id: taskId,
+      title: request.title,
+      location: request.location,
+      day: UNASSIGNED_DATE,
+      priority: request.priority,
+      assignee: UNASSIGNED,
+      createdBy: request.requestedBy || currentUser || "",
+      done: false,
+      photo: null,
+      moved: null
+    });
+    request.status = "moved";
+    request.taskId = taskId;
+    logActivity('Moved "' + request.title + '" from task requests to Unscheduled');
+    toast('"' + request.title + '" added to Unscheduled');
+    markSaving();
+    renderRequests();
+    renderAll();
+  }
+
+  function removeRequest(id) {
+    const index = requestIndex(id);
+    if (index === -1) return;
+    const request = requests[index];
+    requests.splice(index, 1);
+    logActivity('Deleted the task request "' + request.title + '"');
+    toast("Request deleted");
+    markSaving();
+    renderRequests();
+  }
+
+  const requestForm = document.getElementById("requestForm");
+  requestForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    const titleInput = document.getElementById("requestTitle");
+    const locationInput = document.getElementById("requestLocation");
+    const byInput = document.getElementById("requestedBy");
+    const noteInput = document.getElementById("requestNote");
+    const title = titleInput.value.trim();
+    const location = locationInput.value.trim();
+    if (!title || !location) return;
+
+    requests.unshift({
+      id: "r-" + Date.now().toString(36) + "-" + requestUid++,
+      title: title,
+      location: location,
+      priority: document.getElementById("requestPriority").value,
+      requestedBy: byInput.value.trim(),
+      note: noteInput.value.trim(),
+      status: "pending",
+      taskId: null
+    });
+    logActivity('Logged the task request "' + title + '" for ' + location);
+    toast("Task request logged");
+    titleInput.value = "";
+    locationInput.value = "";
+    byInput.value = "";
+    noteInput.value = "";
+    document.getElementById("requestPriority").value = "medium";
+    markSaving();
+    renderRequests();
+    titleInput.focus();
+  });
+
   /* ---------------- Shopping list ---------------- */
   // Ticking an item removes it from the list, so what remains is exactly what
   // still needs buying. Removal is permanent, so it is logged to the activity
@@ -1876,6 +2050,7 @@
     logActivity("Shift started - connecting to the server");
     renderAll();
     renderComplaints();
+    renderRequests();
     renderShopping();
     renderPeople();
     renderPhonebook();
@@ -1898,9 +2073,11 @@
         recurringTasks = board.recurring || [];
         people = board.people || [];
         phonebook = board.phonebook || [];
+        requests = board.requests || [];
         // Start new ids above anything the server already holds, so a contact
         // added in this session cannot collide with an existing one.
         phonebookUid = phonebook.length + 1;
+        requestUid = requests.length + 1;
         applyRecurringTasks();
         logActivity(serverReachable
           ? "Board loaded from the server"
@@ -1916,6 +2093,7 @@
       }
       renderAll();
       renderComplaints();
+      renderRequests();
       renderShopping();
       renderPeople();
       renderPhonebook();
@@ -1976,12 +2154,14 @@
             recurringTasks = board.recurring || [];
             people = board.people || people;
             phonebook = board.phonebook || phonebook;
+            requests = (board.requests || []).filter(isValidRequest).map(normalizeRequest);
             refreshPeopleSelects();
             renderPeople();
             renderPhonebook();
             applyRecurringTasks();
             renderAll();
             renderComplaints();
+            renderRequests();
             renderShopping();
           })
           .catch(function () { /* transient; the next event will resync */ });

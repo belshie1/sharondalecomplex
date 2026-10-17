@@ -641,6 +641,86 @@
     overflow:hidden;
   }
 
+  /* ---- Task requests view ---- */
+  /* A request is work logged but not yet accepted onto the board, so it lives in
+     its own table: the composer here only logs the request, and the Move to task
+     button in the row is what puts it on the calendar. */
+  .requests-card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-sm);
+    overflow:hidden;
+  }
+  .requests-add{
+    display:grid;
+    grid-template-columns:1.4fr 1fr 0.9fr 0.8fr 1fr auto;
+    gap:10px;
+    padding:16px 22px;
+    border-bottom:1px solid var(--line-soft);
+    background:var(--canvas-deep);
+  }
+  .requests-add input,
+  .requests-add select{
+    border:1px solid var(--line);
+    background:#FEFCF6;
+    border-radius:9px;
+    padding:10px 12px;
+    font:inherit;
+    font-size:13px;
+    color:var(--ink);
+    width:100%;
+    min-width:0;
+  }
+  .requests-add input:focus,
+  .requests-add select:focus{border-color:var(--forest); outline:none;}
+  .requests-head{
+    display:grid;
+    grid-template-columns:1.8fr 0.7fr 0.9fr 0.8fr 1.5fr;
+    gap:12px;
+    padding:14px 22px;
+    background:var(--forest-pale);
+    font-size:11.5px;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+    color:var(--forest-dark);
+    font-weight:700;
+  }
+  .request-row{
+    display:grid;
+    grid-template-columns:1.8fr 0.7fr 0.9fr 0.8fr 1.5fr;
+    gap:12px;
+    align-items:center;
+    padding:16px 22px;
+    border-bottom:1px solid var(--line-soft);
+    transition:background 0.2s ease;
+  }
+  .request-row:last-child{border-bottom:none;}
+  .request-row:hover{background:rgba(221,233,223,0.3);}
+  .request-row.moved{opacity:0.55;}
+  .request-row.moved .r-title{text-decoration:line-through;}
+  .r-title{font-weight:600; font-size:13.5px; overflow-wrap:anywhere;}
+  .r-loc{font-size:12px; color:var(--muted); margin-top:2px;}
+  .r-note{font-size:11.5px; color:var(--muted); font-style:italic; margin-top:3px; overflow-wrap:anywhere;}
+  .r-by{font-size:12.5px; color:var(--ink); overflow-wrap:anywhere;}
+  .r-none{font-size:12.5px; color:var(--muted); font-style:italic;}
+  .priority-chip{
+    font-size:11px; font-weight:700; padding:4px 10px; border-radius:20px;
+    width:fit-content; letter-spacing:0.02em; text-transform:capitalize;
+  }
+  .priority-chip.low{background:var(--forest-pale); color:var(--forest);}
+  .priority-chip.medium{background:var(--amber-pale); color:var(--amber-dark);}
+  .priority-chip.high{background:#F4E2DE; color:var(--coral);}
+  .status-chip.pending{background:var(--amber-pale); color:var(--amber-dark);}
+  .status-chip.moved{background:var(--forest-pale); color:var(--forest);}
+  .r-actions{display:flex; gap:8px; flex-wrap:wrap;}
+  .r-actions .act-remove{color:var(--coral); border-color:#E9CFC9;}
+  .r-actions .act-remove:hover{background:#F4E2DE; color:#873C32;}
+  .requests-empty{
+    font-size:13px; color:var(--muted); line-height:1.5;
+    padding:22px 22px; text-align:center;
+  }
+
   /* ---- Shopping list ---- */
   .shopping-card{
     background:var(--card);
@@ -1070,6 +1150,13 @@
     .complaint-add{grid-template-columns:1fr; gap:8px; padding:14px 18px;}
     .complaint-add input{min-height:44px;}
     .complaint-add .btn{min-height:44px; justify-content:center;}
+    .requests-head{display:none;}
+    .requests-add{grid-template-columns:1fr; gap:8px; padding:14px 18px;}
+    .requests-add input,
+    .requests-add select{min-height:44px;}
+    .requests-add .btn{min-height:44px; justify-content:center;}
+    .request-row{grid-template-columns:1fr; gap:6px; padding:16px 18px;}
+    .r-actions{margin-top:6px;}
     .phonebook-add{grid-template-columns:1fr; gap:8px;}
     .phonebook-add input{min-height:44px;}
     .phonebook-add .btn{min-height:44px;}
@@ -1092,6 +1179,7 @@
   .board-card,
   .board-scroll,
   .complaints-card,
+  .requests-card,
   .view{
     min-width:0;
   }

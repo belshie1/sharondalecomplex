@@ -72,6 +72,13 @@ export function seedIfEmpty() {
       { id: "c-4", name: "GreenKeep Garden Services", company: "GreenKeep", phone: "011 555 0193", note: "Fortnightly contract" },
       { id: "c-5", name: "Liftcare Services", company: "Liftcare", phone: "011 555 0168", note: "Elevator maintenance" },
     ],
+    // Work reported to the caretaker that has not been accepted onto the weekly
+    // board yet. Nothing here is counted by the calendar or the weekly report.
+    requests: [
+      { id: "r-1", title: "Replace broken gate remote", location: "Main entrance", priority: "medium", requestedBy: "L. Marchetti", note: "Owner says the remote only works up close.", status: "pending" },
+      { id: "r-2", title: "Repaint stairwell handrail", location: "Block B - Stairwell", priority: "low", requestedBy: "S. Haddad", note: "Paint flaking on the lower flight.", status: "pending" },
+      { id: "r-3", title: "Investigate damp patch on ceiling", location: "Block D - Unit 15", priority: "high", requestedBy: "A. Keller", note: "Reported after the weekend rain.", status: "pending" },
+    ],
   });
   return true;
 }

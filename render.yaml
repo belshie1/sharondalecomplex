@@ -1,0 +1,31 @@
+# Render deployment for Sharondale.
+#
+# Render builds the Dockerfile and runs one web service. Before the URL is
+# public, set these in the service's Environment tab:
+#
+#   SHARONDALE_TOKEN   the write access code (openssl rand -hex 24)
+#   SHARONDALE_DB      /app/data/sharondale.db
+#
+# and add a **Disk** mounted at /app/data. Without the disk the SQLite file sits
+# on the instance's ephemeral filesystem and the board resets on every deploy.
+# Render sets PORT itself.
+#
+# A Disk pins the service to a single instance, which is what this app wants:
+# the board is one SQLite file, so two instances would diverge.
+services:
+  - type: web
+    name: sharondale
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      name: sharondale-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: SHARONDALE_DB
+        value: /app/data/sharondale.db
+      # Set in the dashboard rather than here, so the code never reaches the repo.
+      - key: SHARONDALE_TOKEN
+        sync: false

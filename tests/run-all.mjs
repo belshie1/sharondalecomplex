@@ -27,6 +27,7 @@ const SUITES = [
   "qa-shopping.mjs",
   "qa-people.mjs",
   "qa-phonebook.mjs",
+  "qa-requests.mjs",
   "qa-report.mjs",
   "qa-complaint-add.mjs",
   "qa-complaint-delete.mjs",
