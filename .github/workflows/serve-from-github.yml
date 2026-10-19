@@ -1,0 +1,182 @@
+# Runs the board backend on GitHub Actions.
+#
+# GitHub Pages cannot run the backend, so publishing the dashboard there alone
+# gives a page whose /api/* calls 404 and whose changes are never saved. This
+# workflow runs the whole app inside a GitHub-hosted runner and opens a tunnel
+# to its port, so the resulting URL serves the dashboard and the API.
+#
+# The database lives on a GitHub cache across runs. A cache is not a disk: it
+# is saved when the run ends, so writes made between runs are kept, but two
+# visits racing while a run is finishing can lose the later one. Treat this as
+# a shared demo. For a board you rely on, DEPLOY.md describes a real host with
+# a volume.
+#
+# Start it from Actions -> "Serve app from GitHub" -> Run workflow. The job
+# stays up for run_minutes, then saves the database and stops, so the URL is
+# temporary. Each "Run workflow" returns a fresh URL in the job summary.
+name: Serve app from GitHub
+
+on:
+  workflow_dispatch:
+    inputs:
+      tunnel:
+        description: "Public tunnel: cloudflared (random trycloudflare.com URL) or serveo (ssh, SSH key required)"
+        type: choice
+        options: [cloudflared, serveo]
+        default: cloudflared
+      run_minutes:
+        description: "How long to keep the server up (1-350, GitHub's job limit is 6h)"
+        default: "60"
+      write_code:
+        description: "Access code for changes. Set it only to read the board for now."
+        default: "5879"
+
+permissions:
+  contents: read
+
+concurrency:
+  # One runner only: a second would hold its own copy of a single SQLite file.
+  group: sharondale-serve
+  cancel-in-progress: true
+
+env:
+  DB_PATH: data/sharondale.db
+  CACHE_KEY: sharondale-db-${{ github.ref_name }}
+
+jobs:
+  serve:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Restore the board from the previous run. The key is fixed and the
+      # restore key matches any prefix, so the newest saved copy wins.
+      - name: Restore the board database
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.DB_PATH }}
+          key: ${{ env.CACHE_KEY }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ env.CACHE_KEY }}-
+
+      - name: Report whether a previous board was restored
+        run: |
+          if [ -f "$DB_PATH" ]; then
+            echo "Restored the board from an earlier run ($(stat -c%s "$DB_PATH") bytes)."
+          else
+            echo "No earlier board found; the server will seed a fresh one."
+          fi
+
+      - name: Start the backend
+        env:
+          PORT: "3000"
+          HOST: 0.0.0.0
+          SHARONDALE_DB: ${{ github.workspace }}/data/sharondale.db
+          SHARONDALE_TOKEN: ${{ inputs.write_code }}
+        run: |
+          echo "Starting the backend on port 3000..."
+          node server/index.mjs > server.log 2>&1 &
+          echo $! > server.pid
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:3000/api/health > /dev/null; then
+              echo "Backend is healthy."
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "Backend did not become healthy. Log follows:"
+          cat server.log
+          exit 1
+
+      - name: Open a public tunnel
+        id: tunnel
+        env:
+          TUNNEL: ${{ inputs.tunnel }}
+        run: |
+          if [ "$TUNNEL" = "serveo" ]; then
+            echo "serveo needs an SSH key and is not wired up in this workflow." >&2
+            echo "Use the cloudflared option, or see DEPLOY.md for a real host." >&2
+            exit 1
+          fi
+          curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          nohup ./cloudflared tunnel --no-autoupdate --url http://127.0.0.1:3000 > tunnel.log 2>&1 &
+          URL=""
+          for i in $(seq 1 60); do
+            URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log | head -n1 || true)
+            if [ -n "$URL" ]; then break; fi
+            sleep 1
+          done
+          if [ -z "$URL" ]; then
+            echo "No tunnel URL yet. Log follows:"
+            cat tunnel.log
+            exit 1
+          fi
+          # Not a secret: a quick tunnel's name is random per job and dies with it.
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Sharondale is live at $URL"
+            echo ""
+            echo "This URL stops working when the job ends. To try the API:"
+            echo ''
+            echo '```'
+            echo "curl $URL/api/health"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the app is served through the tunnel
+        env:
+          BASE_URL: ${{ steps.tunnel.outputs.url }}
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS "$BASE_URL/api/health" > health.json; then
+              cat health.json
+              echo ""
+              echo "The board database is at:"
+              node -e "console.log(JSON.parse(require('fs').readFileSync('health.json','utf8')).database)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "The tunnel did not answer /api/health in time." >&2
+          cat tunnel.log
+          exit 1
+
+      - name: Keep the server up
+        env:
+          MINUTES: ${{ inputs.run_minutes }}
+        run: |
+          SECONDS_TO_RUN=$(( ${MINUTES:-60} * 60 ))
+          echo "Keeping the server up for $MINUTES minute(s). Watch this step to know it is alive."
+          for i in $(seq 1 $SECONDS_TO_RUN); do
+            if [ "$((i % 60))" -eq 0 ]; then
+              echo "[$((i / 60)) min] $(date -u +%H:%M:%S) - $(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/health) from /api/health"
+            fi
+            sleep 1
+          done
+          echo "Time is up; saving the board."
+
+      # Always save, even if a step failed after the server wrote something, so
+      # the next run does not fall back to the seed data.
+      - name: Save the board database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.DB_PATH }}
+          key: ${{ env.CACHE_KEY }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Show the server log
+        if: always()
+        run: tail -n 40 server.log || true
+
+      - name: Stop the server
+        if: always()
+        run: |
+          [ -f server.pid ] && kill "$(cat server.pid)" 2>/dev/null || true
+          pkill -f cloudflared 2>/dev/null || true
+          echo "Stopped."
