@@ -46,7 +46,64 @@ path so you can check it from outside.
 
 ---
 
-## Option A - Fly.io (recommended)
+## Option 0 - Supabase + GitHub (recommended)
+
+Supabase removes the one requirement that made a free host impossible: the board
+no longer needs a disk. It lives in Postgres instead, so the backend can run on
+any stateless host, and the site can be published by GitHub Actions.
+
+What goes where:
+
+| Piece | Where | Cost |
+| --- | --- | --- |
+| Database (the board) | Supabase Postgres | free tier |
+| Page + API | Vercel, one project, serverless | free tier |
+| Deploy | GitHub Actions (`.github/workflows/deploy-vercel.yml`) | free |
+| Address people use | `https://<project>.vercel.app` | - |
+
+### 1. Create the board in Supabase
+
+1. Open the project's **SQL Editor** and run [`server/supabase-schema.sql`](server/supabase-schema.sql).
+   The app also creates this on first boot; running it is just the visible way
+   to confirm.
+2. **Project Settings -> API**: copy the **Project URL** and the
+   **service_role** key. The service_role key is an admin key - it belongs only
+   in server environment variables, never in the page, the repo, or a chat.
+
+### 2. Deploy with Vercel from GitHub
+
+1. Create a token at <https://vercel.com/account/tokens>.
+2. `npx vercel link` once locally (or create the project in the Vercel dashboard)
+   and copy the org id and project id from **Project Settings -> General**.
+3. In the Vercel project, add **Environment Variables**:
+
+   | Name | Value |
+   | --- | --- |
+   | `SHARONDALE_TOKEN` | the access code staff type once |
+   | `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+   | `SUPABASE_SERVICE_ROLE_KEY` | the service_role key |
+   | `SHARONDALE_ALLOWED_ORIGINS` | the Pages origin, if you keep Pages: `https://belshie1.github.io` |
+
+4. In GitHub: **Settings -> Secrets and variables -> Actions** and add secrets
+   `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
+5. Run **Deploy to Vercel** (or push to `main`). It deploys, prints the URL, and
+   then runs `tests/verify-deploy.mjs` against it - a red run names the problem
+   instead of leaving a site that looks fine and saves nothing.
+
+### 3. (Optional) keep using the GitHub Pages address
+
+Set the action variable `SHARONDALE_API` to `https://<project>.vercel.app/api`
+and run **Publish dashboard to Pages**. Both origins are then in use: the page on
+Pages and on Vercel, the API on Vercel, the data in Supabase.
+
+The board is now a single row in `sharondale_board`; there is no volume to
+attach and nothing to lose on redeploy. `/api/health` reports
+`storage: Supabase Postgres ...` and `dbMs` (round-trip time) so a deployment
+check proves the database actually answered.
+
+---
+
+## Option A - Fly.io
 
 `fly.toml` is already in the repo. Fly volumes are straightforward, which makes
 the persistent-database requirement easy to satisfy.
