@@ -146,7 +146,7 @@
   //     dashboard still opens and stays usable when the API is unreachable.
   // Nothing here is destructive: a failed read falls back to the cache, and a
   // failed write keeps the change locally and retries.
-  const API_BASE = window.SHARONDALE_API || "/api";
+  const API_BASE = (window.SHARONDALE_API || "/api").replace(/\/+$/, "");
   // The write token authorises changes. It comes from a value baked into the
   // page if the operator chose that, otherwise from this browser's storage once
   // the caretaker has entered it. Keeping it out of the repo means the key is
@@ -2126,6 +2126,14 @@
   function watchForOtherDevices() {
     if (typeof EventSource === "undefined") return;
     try {
+      // Only a same-origin dashboard gets the live stream. A cross-origin one
+      // (the static site on GitHub Pages) skips it: the browser would refuse to
+      // reconnect after the very first event, so it would only add console
+      // errors. That page still saves normally, it just does not update live.
+      const sameOrigin = /^https?:\/\//.test(API_BASE)
+        ? API_BASE.indexOf(location.origin + "/") === 0
+        : !/^\/\//.test(API_BASE);
+      if (!sameOrigin) return;
       const stream = new EventSource(API_BASE + "/events");
       // An open SSE stream keeps the browser's load/network-idle state busy, so
       // close it on unload and when the tab is hidden. Without this a reload has

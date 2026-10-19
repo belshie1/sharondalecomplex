@@ -1,0 +1,47 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm install",
+  "functions": {
+    "api/index.mjs": {
+      "includeFiles": "server/**"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/index.mjs"
+    },
+    {
+      "source": "/",
+      "destination": "/dashboard/index.html"
+    },
+    {
+      "source": "/index.html",
+      "destination": "/dashboard/index.html"
+    },
+    {
+      "source": "/app.js",
+      "destination": "/dashboard/app.js"
+    },
+    {
+      "source": "/styles.css",
+      "destination": "/dashboard/styles.css"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "same-origin"
+        }
+      ]
+    }
+  ]
+}

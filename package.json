@@ -11,6 +11,9 @@
     "verify:deploy": "node tests/verify-deploy.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "pg": "^8.11.5"
   }
 }

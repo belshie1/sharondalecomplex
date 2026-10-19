@@ -1,0 +1,72 @@
+# Sharondale on a machine that stays on, with a stable public HTTPS address.
+#
+# Use this when no cloud host is available (there is no free Vercel-style Node
+# host, and Render/Railway/Fly now want a card). Run it on any always-on Windows,
+# Linux or macOS machine on the complex's network:
+#
+#   docker compose up -d
+#
+# Two containers:
+#   sharondale  the app, listening only on the loopback of the host
+#   tailscale   puts that same loopback app on your private tailnet, with a real
+#               HTTPS certificate, so any phone or laptop signed in to Tailscale
+#               opens https://sharondale.<your-tailnet>.ts.net
+#
+# The Tailscale address is private: only your own devices can reach it. That is
+# what makes this a working, safe deployment without opening a port or paying for
+# a host. Adding people is one "Share" in the Tailscale admin console per person.
+#
+# The token is read from .env next to this file (see .env.example). Set
+# SHARONDALE_HOSTNAME to the name you want to own (default: sharondale).
+#
+# Override the hostname with an env var, e.g. in PowerShell:
+#   $env:SHARONDALE_HOSTNAME = "sharondale"; docker compose up -d
+
+services:
+  sharondale:
+    build: .
+    container_name: sharondale
+    restart: unless-stopped
+    # Not published on the LAN: only the tailscale container needs to reach it.
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      SHARONDALE_DB: /app/data/sharondale.db
+      SHARONDALE_TOKEN: ${SHARONDALE_TOKEN:?set SHARONDALE_TOKEN in .env}
+      # The static dashboard on GitHub Pages is cross-origin, so it is allowed
+      # here. Same-origin requests never need this.
+      SHARONDALE_ALLOWED_ORIGINS: ${SHARONDALE_ALLOWED_ORIGINS:-}
+    volumes:
+      # The board. A named volume survives rebuilds and restarts; do not drop it.
+      - sharondale-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: sharondale-tailscale
+    restart: unless-stopped
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?set TS_AUTHKEY in .env}
+      TS_HOSTNAME: ${SHARONDALE_HOSTNAME:-sharondale}
+      TS_STATE_DIR: /var/lib/tailscale
+      # Serve HTTPS on the tailnet and proxy the app's loopback port.
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "true"
+    volumes:
+      - tailscale-state:/var/lib/tailscale
+      - ./deploy/tailscale:/config:ro
+    depends_on:
+      - sharondale
+
+volumes:
+  sharondale-data:
+  tailscale-state:

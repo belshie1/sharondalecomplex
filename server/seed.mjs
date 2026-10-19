@@ -1,9 +1,12 @@
 /**
  * Seeds a brand-new database with the same starter board the dashboard used to
  * carry in memory, so a freshly deployed backend is not an empty screen.
- * Runs only when the tasks table has no rows.
+ * Runs only when the board has no tasks.
+ *
+ * Storage-agnostic: it goes through whichever backend db.mjs selected (SQLite
+ * locally, Supabase in production), so the seed lands where the app reads.
  */
-import { db, isSeeded, replaceBoard } from "./db.mjs";
+import { storage } from "./db.mjs";
 
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
@@ -26,11 +29,11 @@ function weekDates() {
   return map;
 }
 
-export function seedIfEmpty() {
-  if (isSeeded()) return false;
+export async function seedIfEmpty() {
+  if (await storage.isSeeded()) return false;
   const d = weekDates();
 
-  replaceBoard({
+  await storage.replaceBoard({
     tasks: [
       { id: "seed-1", title: "Pool filter back-flush", location: "Clubhouse - Pool deck", day: d.mon, priority: "medium", assignee: "Elena Ruiz", done: true },
       { id: "seed-2", title: "Replace hallway bulb", location: "Block A - Floor 3", day: d.mon, priority: "low", assignee: "Marco Conti", done: true },
@@ -84,7 +87,8 @@ export function seedIfEmpty() {
 }
 
 if (process.argv[1] && process.argv[1].endsWith("seed.mjs")) {
-  const did = seedIfEmpty();
-  const n = db.prepare("SELECT COUNT(*) AS n FROM tasks").get().n;
-  console.log(did ? `Seeded. ${n} tasks in the database.` : `Already had data (${n} tasks); left untouched.`);
+  const did = await seedIfEmpty();
+  const board = await storage.readAll();
+  console.log(did ? `Seeded. ${board.tasks.length} tasks in the database.` : `Already had data (${board.tasks.length} tasks); left untouched.`);
+  await storage.closeDb();
 }

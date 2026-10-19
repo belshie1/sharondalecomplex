@@ -1,10 +1,14 @@
 /**
  * Database layer for the Sharondale backend.
  *
- * Uses node:sqlite (built into Node 22+) so the server has zero npm
- * dependencies and runs anywhere Node runs. If you outgrow it, the four
- * exported functions below are the only things that touch storage, so
- * swapping in Postgres/Supabase means rewriting this file alone.
+ * Two storages share these four exported functions - readAll, replaceBoard,
+ * isSeeded, closeDb - so the rest of the server never knows which is in use:
+ *
+ *   * Supabase Postgres, when SUPABASE_URL and a Supabase key are set. That is
+ *     what a real deployment should use: it survives every restart, and it is
+ *     reachable from a host with no disk. See supabase-db.mjs.
+ *   * SQLite, via node:sqlite (built into Node 22+), otherwise. Zero npm
+ *     dependencies, perfect locally and on a machine with a volume.
  */
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
@@ -14,23 +18,25 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FILE = path.join(here, "..", "data", "sharondale.db");
 
+export const usingSupabase = !!(process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY));
+
 // A path of ":memory:" gives each process a throwaway database, which the API
 // tests use so they never touch real data.
 const dbFile = process.env.SHARONDALE_DB || DEFAULT_FILE;
 
-if (dbFile !== ":memory:") {
+if (!usingSupabase && dbFile !== ":memory:") {
   fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 }
 
-export const db = new DatabaseSync(dbFile);
+export const db = usingSupabase ? null : new DatabaseSync(dbFile);
 
 // WAL keeps reads fast while a write is in flight; it is a no-op in memory.
-if (dbFile !== ":memory:") {
+if (!usingSupabase && dbFile !== ":memory:") {
   db.exec("PRAGMA journal_mode = WAL;");
 }
-db.exec("PRAGMA foreign_keys = ON;");
+if (!usingSupabase) db.exec("PRAGMA foreign_keys = ON;");
 
-db.exec(`
+if (!usingSupabase) db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
     id           TEXT PRIMARY KEY,
     title        TEXT NOT NULL,
@@ -130,9 +136,36 @@ function ensureColumn(table, column, definition) {
   db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
 }
 
-ensureColumn("tasks", "created_by", "TEXT NOT NULL DEFAULT ''");
+if (!usingSupabase) ensureColumn("tasks", "created_by", "TEXT NOT NULL DEFAULT ''");
 
 const now = () => new Date().toISOString();
+
+// The storage that index.mjs actually uses. Both modules export the same
+// functions, so this is the whole switch.
+const backend = usingSupabase ? await import("./supabase-db.mjs") : {
+  readAll, replaceBoard, isSeeded, closeDb,
+  initStorage: async () => {},
+  ping: async () => 0,
+  storageDescription: () => `SQLite file (${dbFile})`,
+};
+
+export const storage = backend;
+
+export async function initStorage() {
+  await backend.initStorage();
+}
+
+export async function pingStorage() {
+  return backend.ping();
+}
+
+export function storageDescription() {
+  return backend.storageDescription();
+}
+
+export async function closeStorage() {
+  return backend.closeDb();
+}
 
 /* ------------------------------- shapes -------------------------------- */
 

@@ -24,3 +24,11 @@ yarn-error.log*
 # Test run artifacts
 test-output.txt
 test-error.txt
+server-out.txt
+server-*.txt
+*.log
+
+# Local deploy artefacts
+cloudflared*
+health.json
+tunnel.log

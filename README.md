@@ -133,6 +133,8 @@ Deploy artefacts included in the repo:
 | `render.yaml` | Render blueprint, including the disk. |
 | `koyeb.yaml` | Koyeb service, port and volume. |
 | `Procfile` | For buildpack-based hosts such as Heroku. |
+| `docker-compose.yml` | One machine + Tailscale Serve: a stable private HTTPS URL with no cloud account. |
+| `.github/workflows/publish-dashboard.yml` | Publishes the page to Pages, pointed at a backend via `SHARONDALE_API`. |
 | `.dockerignore` | Keeps local data, tests and secrets out of the image. |
 
 Run the service as **one instance**. The board is a single SQLite file, so two

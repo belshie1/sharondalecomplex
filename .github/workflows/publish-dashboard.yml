@@ -1,0 +1,117 @@
+# Publishes the dashboard (the page only) to GitHub Pages.
+#
+# The backend cannot run on Pages, so this workflow is only useful together with
+# the *other* half of the deployment: a backend reachable at a public HTTPS
+# address. Once that exists, the page has to be told where it is, which is what
+# the SHARONDALE_API repository variable does here - it is injected into the
+# built index.html before publishing.
+#
+# Then the same URL people use - https://belshie1.github.io/sharondalecomplex/ -
+# loads the page and saves every change to that backend, because the backend
+# allow-lists this origin (SHARONDALE_ALLOWED_ORIGINS).
+#
+# Setup (once):
+#   Settings -> Secrets and variables -> Actions -> Variables
+#     SHARONDALE_API = https://<your-backend>/api
+#
+# Without that variable this workflow publishes nothing: a static dashboard that
+# cannot reach an API looks populated (it ships a fallback board) but never saves,
+# and that is exactly the failure this repo is trying to stop repeating.
+name: Publish dashboard to Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "dashboard/**"
+      - ".github/workflows/publish-dashboard.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check that a backend URL is configured
+        run: |
+          if [ -z "${{ vars.SHARONDALE_API }}" ]; then
+            echo "::error::SHARONDALE_API is not set. Publishing the page alone would load but never save. See DEPLOY.md."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Point the dashboard at the backend
+        env:
+          API: ${{ vars.SHARONDALE_API }}
+        run: |
+          # Two things this avoids:
+          #  * no trailing slash, so app.js builds exactly one "/board" path;
+          #  * the address is injected, never committed, so the check below
+          #    fails a publish whose page is not actually pointed at a backend.
+          API_TRIMMED="${API%/}"
+          # Make it available to the next step too.
+          echo "API_TRIMMED=$API_TRIMMED" >> "$GITHUB_ENV"
+          echo "Backend: $API_TRIMMED"
+          # JSON.stringify escapes the value, so quotes or backslashes in the
+          # address cannot break out of the script tag.
+          node -e '
+            const fs = require("fs");
+            const file = "dashboard/index.html";
+            const tag = "<script>window.SHARONDALE_API = " + JSON.stringify(process.env.API_TRIMMED) + ";</script>";
+            const html = fs.readFileSync(file, "utf8");
+            if (!/<script[^>]*src="app\.js"/.test(html)) throw new Error("dashboard/index.html does not load app.js");
+            fs.writeFileSync(file, html.replace(/(<script[^>]*src="app\.js")/, tag + "\n$1"));
+          '
+
+      - uses: actions/configure-pages@v5
+
+      - name: Assemble the site
+        run: |
+          # Serve the repository root: the dashboard asks for /styles.css and
+          # /app.js relative to the site root, and the backend resolves those
+          # against dashboard/, so the site has to mirror that layout.
+          mkdir -p _site
+          cp dashboard/index.html _site/index.html
+          cp dashboard/styles.css dashboard/app.js _site/
+          grep -F "SHARONDALE_API = \"$API_TRIMMED\"" _site/index.html \
+            || (echo "::error::_site/index.html does not point at $API_TRIMMED"; exit 1)
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The URL can be a private tailnet address, which matters here: this step
+      # must run on the caller's own device/runner that can reach it.
+      - name: Check the published page and backend together
+        env:
+          # The backend, not the page: the page is hosted here and static, so
+          # only the API can prove a save would work.
+          BASE_URL: ${{ vars.SHARONDALE_API }}
+        run: |
+          # The repo is checked out only to have this script; it checks the live
+          # backend. Writes are not attempted, so this is safe to run on a
+          # board in use.
+          node tests/verify-deploy.mjs || {
+            echo "::error::The page was published but its backend did not pass the check. The page will show 'Offline - will retry' and nothing will be saved.";
+            exit 1;
+          }

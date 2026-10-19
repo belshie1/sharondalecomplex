@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readAll, replaceBoard, isSeeded, db } from "./db.mjs";
+import { storage, initStorage, pingStorage, storageDescription, closeStorage, usingSupabase } from "./db.mjs";
 import { seedIfEmpty } from "./seed.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -40,6 +40,24 @@ const WRITE_TOKEN = process.env.SHARONDALE_TOKEN || "";
 // checked from outside: on a host with an ephemeral filesystem the board silently
 // resets on every deploy, and the only way to see that is to look at the path.
 const DB_FILE = process.env.SHARONDALE_DB || path.join(root, "data", "sharondale.db");
+
+// API only, no static files. This is what a serverless/edge host needs: on
+// Vercel the page is served from the deployment's CDN and only /api/* reaches
+// this process. Locally a single process still serves both.
+const API_ONLY = process.env.SHARONDALE_API_ONLY === "1";
+// Lets the dashboard on another origin use the live-sync stream. Off by default
+// (cross-origin EventSource is unreliable through a CDN); same-origin hosts keep
+// it, so the usual deployment is unaffected.
+const SSE_CROSS_ORIGIN = process.env.SHARONDALE_SSE_CROSS_ORIGIN === "1";
+
+// Browser origins allowed to call the API when the dashboard is hosted somewhere
+// other than this process (for example the static site on GitHub Pages talking to
+// a backend running on a home machine). Same-origin requests are always allowed;
+// anything else must be listed here, comma-separated, or CORS is refused.
+const ALLOWED_ORIGINS = (process.env.SHARONDALE_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim().replace(/\/+$/, ""))
+  .filter(Boolean);
 
 const TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -67,6 +85,19 @@ function broadcast() {
 }
 
 /* ------------------------------- helpers -------------------------------- */
+
+// Cross-origin rules for the API. Headers are added centrally so every response,
+// including errors and the event stream, carries them.
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (!origin || !ALLOWED_ORIGINS.includes(origin)) return;
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  // The answer differs per origin, so a shared cache must not reuse it.
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Methods", "GET, PUT, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Sharondale-Token");
+  res.setHeader("Access-Control-Max-Age", "86400");
+}
 
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
@@ -181,27 +212,43 @@ function validateBoard(body) {
 
 async function handleApi(req, res, pathname) {
   if (pathname === "/api/health" && req.method === "GET") {
-    const board = readAll();
+    // Touching storage on every check is deliberate: a Supabase project pauses
+    // after inactivity, and this is what proves the board can actually be read
+    // right now rather than that the process is merely running.
+    const latencies = { dbMs: null };
+    try {
+      latencies.dbMs = await pingStorage();
+    } catch (error) {
+      return sendJson(res, 503, { ok: false, error: "Storage is unreachable: " + error.message });
+    }
+    const board = await storage.readAll();
     return sendJson(res, 200, {
       ok: true,
-      seeded: isSeeded(),
+      seeded: board.tasks.length > 0,
+      storage: storageDescription(),
       tasks: board.tasks.length,
       complaints: board.complaints.length,
       shopping: board.shopping.length,
       requests: board.requests.length,
       writesProtected: !!WRITE_TOKEN,
+      dbMs: latencies.dbMs,
       // Where the data actually lives. A path under /tmp or a path that is not
       // writable means the board will not survive a restart. A ":memory:"
-      // database is thrown away when the process exits.
-      database: DB_FILE === ":memory:" ? ":memory: (not persisted)" : DB_FILE,
+      // database is thrown away when the process exits. With Supabase this says
+      // so explicitly, because there is no path to inspect.
+      database: usingSupabase ? "supabase: " + storageDescription() : DB_FILE === ":memory:" ? ":memory: (not persisted)" : DB_FILE,
     });
   }
 
   if (pathname === "/api/board" && req.method === "GET") {
-    return sendJson(res, 200, readAll());
+    return sendJson(res, 200, await storage.readAll());
   }
 
   if (pathname === "/api/events" && req.method === "GET") {
+    const origin = req.headers.origin;
+    if (origin && origin !== `http://${req.headers.host}` && origin !== `https://${req.headers.host}` && !SSE_CROSS_ORIGIN) {
+      return sendJson(res, 200, { events: "disabled for cross-origin clients" });
+    }
     res.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
@@ -245,7 +292,7 @@ async function handleApi(req, res, pathname) {
     if (errors.length) return sendJson(res, 400, { error: "Validation failed.", details: errors });
 
     try {
-      const saved = replaceBoard({
+      const saved = await storage.replaceBoard({
         tasks: body.tasks,
         complaints: body.complaints,
         shopping: body.shopping || [],
@@ -269,6 +316,14 @@ async function handleApi(req, res, pathname) {
 }
 
 function serveStatic(req, res, pathname) {
+  if (API_ONLY) {
+    // On a serverless host the page is served by the host, not by this process.
+    // Saying so is clearer than a 404 for / when testing the API directly.
+    res.writeHead(404, { "Content-Type": "text/plain" }).end(
+      "This process serves the API only. The dashboard is at the site URL; /api/* is here.\n"
+    );
+    return;
+  }
   // The dashboard is served at "/" but its assets are requested relative to the
   // root (styles.css, app.js), while the files live in dashboard/. Try the
   // dashboard folder first for anything that is not an explicit path, then fall
@@ -319,7 +374,21 @@ function serveStatic(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   const pathname = decodeURIComponent(new URL(req.url, "http://localhost").pathname);
   try {
+    // A serverless host can reuse a warm process; the schema and the first-run
+    // seed are still made idempotent so a cold start always works.
+    if (!ready) {
+      await initStorage();
+      await seedIfEmpty();
+      ready = true;
+    }
     if (pathname.startsWith("/api/")) {
+      applyCors(req, res);
+      // A cross-origin PUT sends a preflight first; answer it without touching
+      // the API handlers.
+      if (req.method === "OPTIONS") {
+        res.writeHead(204).end();
+        return;
+      }
       await handleApi(req, res, pathname);
     } else {
       serveStatic(req, res, pathname);
@@ -330,12 +399,21 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-seedIfEmpty();
+// Startup: create the table/policies if needed, then seed a brand-new board.
+// Awaited before listening so the first visitor never sees an empty screen.
+let ready = false;
+await initStorage();
+await seedIfEmpty();
+ready = true;
 
 // Startup diagnostics. Two failure modes are invisible from the dashboard -- an
 // unprotected board and a database that will not survive a restart -- so they
 // are reported here, where a host's log captures them on every deploy.
 function reportStorageRisk() {
+  if (usingSupabase) {
+    console.log("Storage: Supabase Postgres - the board survives restarts without a volume.");
+    return;
+  }
   if (DB_FILE === ":memory:") {
     console.log("NOTE: using an in-memory database. Nothing is persisted.");
     return;
@@ -353,11 +431,14 @@ function reportStorageRisk() {
   }
 }
 
-server.listen(port, host, () => {
-  const board = readAll();
+server.listen(port, host, async () => {
+  const board = await storage.readAll();
   console.log(`Sharondale backend listening on http://${host}:${port}`);
-  console.log(`Dashboard:  http://localhost:${port}/`);
-  console.log(`Database:   ${DB_FILE}`);
+  console.log(API_ONLY ? "Mode:       API only (the dashboard is served by the host)" : `Dashboard:  http://localhost:${port}/`);
+  console.log(`Database:   ${storageDescription()}`);
+  if (ALLOWED_ORIGINS.length) {
+    console.log(`CORS origins: ${ALLOWED_ORIGINS.join(", ")}`);
+  }
   console.log(`Board holds ${board.tasks.length} tasks, ${board.complaints.length} complaints, ${board.shopping.length} shopping items, ${board.requests.length} task requests.`);
   if (!WRITE_TOKEN) {
     console.log("");
@@ -377,8 +458,7 @@ function shutdown(signal) {
   }
   clients.clear();
   server.close(() => {
-    try { db.close(); } catch (e) { /* already closed */ }
-    process.exit(0);
+    closeStorage().catch(() => {}).finally(() => process.exit(0));
   });
   // Do not hang forever if a connection refuses to drain.
   setTimeout(() => process.exit(0), 5000).unref();
@@ -386,4 +466,4 @@ function shutdown(signal) {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
-export { server, broadcast, db };
+export { server, broadcast };

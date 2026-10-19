@@ -1,0 +1,13 @@
+# Keep the function small: no tests, no local data, no secrets.
+tests
+data
+.github
+deploy
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+node_modules
+cloudflared*
+*.log

@@ -1,0 +1,77 @@
+# Deploys the app to Vercel from GitHub: the dashboard as a static site and the
+# API as a serverless function, backed by Supabase Postgres.
+#
+# Why this workflow exists at all: Vercel's Git integration needs someone to
+# connect the repo in the Vercel dashboard first. Doing it here instead means the
+# repository alone is enough - a token in GitHub Secrets is the only setup.
+#
+# Setup (once):
+#   Settings -> Secrets and variables -> Actions
+#     Secret   VERCEL_TOKEN            https://vercel.com/account/tokens
+#     Secret   VERCEL_ORG_ID           Team/user id (Vercel -> Settings -> General)
+#     Secret   VERCEL_PROJECT_ID       Project id (created by this workflow on first run)
+#     Variable SHARONDALE_URL          set automatically by the first run
+#
+# Environment variables the deployment itself needs (set them in Vercel -> the
+# project -> Settings -> Environment Variables, or let this workflow copy them
+# from GitHub Secrets on first run - see DEPLOY.md):
+#     SHARONDALE_TOKEN, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+name: Deploy to Vercel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vercel-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the Vercel credentials are configured
+        id: cfg
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "VERCEL_TOKEN is not set - skipping. See DEPLOY.md."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.cfg.outputs.configured == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.cfg.outputs.configured == 'true'
+        with:
+          node-version: "22"
+
+      - name: Deploy to production
+        if: steps.cfg.outputs.configured == 'true'
+        id: deploy
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          # --yes: never prompt. --prod: the alias people actually use.
+          URL=$(npx --yes vercel@latest deploy --prod --yes 2>&1 | tee deploy.log | grep -oE 'https://[a-zA-Z0-9.-]+\.vercel\.app' | tail -n1)
+          if [ -z "$URL" ]; then
+            echo "No deployment URL in the output:"; cat deploy.log; exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Deployed to $URL"
+
+      # A deployment that answers the page but 404s on /api is exactly the
+      # failure this repo is built to catch, so the check runs on the real URL.
+      - name: Verify the live deployment
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          BASE_URL: ${{ steps.deploy.outputs.url }}
+        run: node tests/verify-deploy.mjs
