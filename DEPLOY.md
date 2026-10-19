@@ -66,9 +66,17 @@ What goes where:
 1. Open the project's **SQL Editor** and run [`server/supabase-schema.sql`](server/supabase-schema.sql).
    The app also creates this on first boot; running it is just the visible way
    to confirm.
-2. **Project Settings -> API**: copy the **Project URL** and the
-   **service_role** key. The service_role key is an admin key - it belongs only
-   in server environment variables, never in the page, the repo, or a chat.
+2. **Project Settings -> API**: copy the **Project URL** and the **secret key**
+   (`sb_secret_...`, the modern name for the service_role key). The secret key is
+   an admin key - it belongs only in server environment variables, never in the
+   page, the repo, or a chat.
+3. **Connect -> Session pooler**: copy that connection string. The direct host
+   `db.<ref>.supabase.co` is **IPv6-only** unless the project has the IPv4
+   add-on (see [Supabase's connection docs](https://supabase.com/docs/guides/database/connecting-to-postgres#direct-connections)),
+   and most home/office networks have no IPv6 - the symptom is a board that
+   stays offline with a connection timeout. The pooler string works on IPv4.
+   Set it as `SUPABASE_DB_URL`; alternatively set `SUPABASE_DB_HOST` to the
+   pooler host (e.g. `aws-0-eu-west-1.pooler.supabase.com`).
 
 ### 2. Deploy with Vercel from GitHub
 
@@ -81,7 +89,8 @@ What goes where:
    | --- | --- |
    | `SHARONDALE_TOKEN` | the access code staff type once |
    | `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
-   | `SUPABASE_SERVICE_ROLE_KEY` | the service_role key |
+   | `SUPABASE_SECRET_KEY` | `sb_secret_...` (or a legacy service_role key) |
+   | `SUPABASE_DB_URL` | the Session pooler connection string |
    | `SHARONDALE_ALLOWED_ORIGINS` | the Pages origin, if you keep Pages: `https://belshie1.github.io` |
 
 4. In GitHub: **Settings -> Secrets and variables -> Actions** and add secrets

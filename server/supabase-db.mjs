@@ -6,13 +6,29 @@
  * use. db.mjs picks this file when SUPABASE_URL and a key are set:
  *
  *   SUPABASE_URL                  https://<project-ref>.supabase.co
- *   SUPABASE_SERVICE_ROLE_KEY     the service_role key (server-side only!)
+ *   SUPABASE_SECRET_KEY           the secret key, sb_secret_... (server only!)
  *
- * The service role key bypasses Row Level Security, which is what lets this
- * work behind the app's own access code. It must NEVER be put in the dashboard
- * or committed: anyone holding it can read and write the whole project. If only
- * the anon key is available, set SUPABASE_KEY to it instead and make sure RLS
- * policies allow the server's writes.
+ * The secret key is the new name for what used to be the service_role key: it
+ * bypasses Row Level Security, which is what lets the board work behind the
+ * app's own access code. It must NEVER be put in the dashboard or committed -
+ * anyone holding it can read and write the whole project. The older variable
+ * names (SUPABASE_SERVICE_ROLE_KEY, SUPABASE_KEY) still work, and a legacy
+ * service_role JWT works as the password too.
+ *
+ * The publishable key (sb_publishable_...) is intentionally not used here: it
+ * is for browsers, and RLS refuses it, so it would only make the server fail.
+ *
+ * Network note: the direct host db.<ref>.supabase.co is IPv6-only unless the
+ * project has the IPv4 add-on. Many home and office networks have no IPv6, and
+ * a serverless host may not either, so connecting directly there just times out.
+ * Two ways round it, both supported here:
+ *   * SUPABASE_DB_URL  - paste the "Session pooler" connection string from
+ *                        Supabase (Connect -> Session pooler). Works on IPv4
+ *                        and is the recommended setting.
+ *   * SUPABASE_DB_HOST - just the pooler host, e.g.
+ *                        aws-0-eu-west-1.pooler.supabase.com, with the pooler
+ *                        user postgres.<project-ref> as below.
+ * Without either, the direct host is tried and the error says so explicitly.
  *
  * The board is one row in a small table, because the dashboard saves it as a
  * single unit. Postgres here is not a per-row schema: the whole board changes on
@@ -23,18 +39,62 @@
 import pg from "pg";
 
 const URL_ = process.env.SUPABASE_URL;
-const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || "";
+const KEY =
+  process.env.SUPABASE_SECRET_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_KEY ||
+  "";
 
 const BOARD_ID = "sharondale";
 
+// Where the database actually answers, and with which user.
+const PROJECT_REF = (() => {
+  try { return new URL(URL_).hostname.split(".")[0]; } catch { return ""; }
+})();
+const DIRECT_HOST = PROJECT_REF ? `db.${PROJECT_REF}.supabase.co` : "";
+const DB_HOST = process.env.SUPABASE_DB_HOST || DIRECT_HOST;
+const DB_USER = process.env.SUPABASE_DB_USER || (process.env.SUPABASE_DB_HOST ? `postgres.${PROJECT_REF}` : "postgres");
+const DB_PORT = Number(process.env.SUPABASE_DB_PORT) || 5432;
+const DB_NAME = process.env.SUPABASE_DB_NAME || "postgres";
+
+// A pasted connection string wins, because it already names host, user and port
+// and a person who pasted it means exactly that.
+const CONNECTION_STRING = process.env.SUPABASE_DB_URL || "";
+
 export const pool = new pg.Pool({
-  connectionString: URL_,
+  connectionString: CONNECTION_STRING || undefined,
+  host: CONNECTION_STRING ? undefined : DB_HOST,
+  port: CONNECTION_STRING ? undefined : DB_PORT,
+  user: CONNECTION_STRING ? undefined : DB_USER,
+  database: CONNECTION_STRING ? undefined : DB_NAME,
   password: KEY,
   ssl: { rejectUnauthorized: false },
   max: 4,
   idleTimeoutMillis: 10_000,
-  connectionTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 15_000,
 });
+
+// A bare "connect ETIMEDOUT" is unhelpful, and the usual cause is known, so say
+// it plainly rather than shipping a blank board behind it.
+function explain(error) {
+  const message = String((error && error.message) || error);
+  if (/ETIMEDOUT|ENETUNREACH|EHOSTUNREACH|ENOTFOUND|EAI_AGAIN|timeout/i.test(message) && DB_HOST === DIRECT_HOST && !CONNECTION_STRING) {
+    return new Error(
+      message +
+      " - could not reach " + DIRECT_HOST + ". That host is IPv6-only unless the project" +
+      " has the IPv4 add-on, and this network has no IPv6 route to it. Copy the" +
+      " \"Session pooler\" connection string from Supabase (Connect -> Session pooler)" +
+      " into SUPABASE_DB_URL, or set SUPABASE_DB_HOST to the pooler host."
+    );
+  }
+  return error;
+}
+
+export function connectionTarget() {
+  return CONNECTION_STRING
+    ? "SUPABASE_DB_URL (" + CONNECTION_STRING.replace(/:[^:@/]+@/, ":***@") + ")"
+    : DB_USER + "@" + DB_HOST + ":" + DB_PORT + "/" + DB_NAME;
+}
 
 // Postgres/Supabase keeps one cached connection per process. A serverless host
 // that freezes the process can leave a dead socket behind, and the first query
@@ -42,7 +102,11 @@ export const pool = new pg.Pool({
 // health check pings the pool first, so a dead connection is replaced there
 // instead of during a save.
 async function query(sql, params) {
-  return pool.query(sql, params);
+  try {
+    return await pool.query(sql, params);
+  } catch (error) {
+    throw explain(error);
+  }
 }
 
 const EMPTY = { tasks: [], complaints: [], shopping: [], recurring: [], people: [], phonebook: [], requests: [] };
@@ -118,7 +182,7 @@ export async function ping() {
 }
 
 export function storageDescription() {
-  return "Supabase Postgres (sharondale_board, one row)";
+  return "Supabase Postgres (sharondale_board, one row) via " + connectionTarget();
 }
 
 export async function closeDb() {

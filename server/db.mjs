@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_FILE = path.join(here, "..", "data", "sharondale.db");
 
-export const usingSupabase = !!(process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY));
+export const usingSupabase = !!(process.env.SUPABASE_URL && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY));
 
 // A path of ":memory:" gives each process a throwaway database, which the API
 // tests use so they never touch real data.
