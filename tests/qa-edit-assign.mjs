@@ -78,7 +78,7 @@ export default async function run(page) {
 
   // --- Removing the task still requires the password ------------------------
   await page.locator('.task-card[data-id="' + taskId + '"] .task-delete').click();
-  await page.waitForTimeout(200);
+  await page.locator("#deleteModal.open").waitFor({ state: "visible", timeout: 10000 });
   await page.locator("#deletePassword").fill("5879");
   await page.locator("#deleteSubmit").click();
   await page.waitForTimeout(600);

@@ -21,3 +21,6 @@ yarn-error.log*
 # Environment files may hold the write token
 .env
 .env.local
+# Test run artifacts
+test-output.txt
+test-error.txt

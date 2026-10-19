@@ -1,0 +1,8 @@
+Sharondale backend listening on http://0.0.0.0:3123
+Dashboard:  http://localhost:3123/
+Database:   D:\GitHub\Sharondale_app\data\sharondale.db
+Board holds 13 tasks, 4 complaints, 3 shopping items, 2 task requests.
+
+WARNING: writes are UNPROTECTED (SHARONDALE_TOKEN is not set).
+Anyone who can reach this port can change the board. Set
+SHARONDALE_TOKEN before exposing it to the internet.
