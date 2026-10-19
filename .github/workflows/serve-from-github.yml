@@ -82,12 +82,12 @@ jobs:
           echo "Starting the backend on port 3000..."
           node server/index.mjs > server.log 2>&1 &
           echo $! > server.pid
-          for i in $(seq 1 40); do
+          for i in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:3000/api/health > /dev/null; then
               echo "Backend is healthy."
               exit 0
             fi
-            sleep 0.5
+            sleep 1
           done
           echo "Backend did not become healthy. Log follows:"
           cat server.log
@@ -103,11 +103,15 @@ jobs:
             echo "Use the cloudflared option, or see DEPLOY.md for a real host." >&2
             exit 1
           fi
-          curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          # The release asset is a tarball, not a bare binary: unpack it first,
+          # otherwise the "binary" is just a .tgz and never starts.
+          curl -fsSL -o cloudflared.tgz https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.tgz
+          tar -xzf cloudflared.tgz
           chmod +x cloudflared
+          ./cloudflared --version
           nohup ./cloudflared tunnel --no-autoupdate --url http://127.0.0.1:3000 > tunnel.log 2>&1 &
           URL=""
-          for i in $(seq 1 60); do
+          for i in $(seq 1 90); do
             URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunnel.log | head -n1 || true)
             if [ -n "$URL" ]; then break; fi
             sleep 1
