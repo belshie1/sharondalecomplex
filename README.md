@@ -91,13 +91,16 @@ A "Saved" chip in the header reports the state of the connection:
 
 | Chip | Meaning |
 |---|---|
+| **Saving...** | Contacting the server; nothing is confirmed yet. |
 | **Saved** | Unlocked, and the server confirmed the write. |
 | **Locked - enter code** | Readable, but changes need the access code. Click it to enter one. |
 | **Offline - will retry** | The server was unreachable; the change is held and retried. |
+| **No backend - nothing saved** | The page was published without an API. The board is empty and typing into it is refused. |
 
 The browser keeps a `localStorage` snapshot purely as an **offline cache**: if the
 API is down the dashboard still opens and stays usable, and it syncs once the
-server returns. It is a mirror of the server, never the source of truth.
+server returns. It is a mirror of the server, never the source of truth - and it
+is not written at all when the page has no backend or is locked for editing.
 
 ## Deploying it to a cloud host
 
@@ -108,9 +111,10 @@ token.
 **This app needs a host that runs Node.** It is a backend and a dashboard in one
 service, so a static-only host (GitHub Pages, plain S3, a CDN) cannot run it: the
 page would load, but `/api/*` would 404 and nothing would ever be saved. The
-dashboard ships a hardcoded fallback board that looks like real data, so this
-failure is easy to miss - the tell is the header chip reading **Offline - will
-retry**.
+dashboard does not hide that: with no API answering it shows an **empty** board,
+a banner saying the page has no backend, and the chip **No backend - nothing
+saved** - so a broken deployment looks broken. `tests/qa-static-host.mjs` checks
+exactly that in `npm test`.
 
 In short, two things matter:
 

@@ -242,7 +242,14 @@
 
   // The offline cache is a convenience only: it lets the dashboard open and
   // stay usable when the API cannot be reached. It is never the source of truth.
+  // A page that has proved it has no backend must not write one: the cache
+  // outlives the visit, so a later, correctly deployed page would load this
+  // sample board as "the last saved copy" and pass it off as data.
   function writeCache() {
+    if (backendMissing) return;
+    // Saving locally while the server has refused the write for lack of the
+    // access code is what makes a locked page look "Saved" after a reload.
+    if (needsToken || saveState === "locked") return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, cachedAt: Date.now(), ...boardPayload() }));
     } catch (error) {
@@ -250,6 +257,7 @@
     }
   }
   function readCache() {
+    if (backendMissing) return null;
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
@@ -283,6 +291,7 @@
         // network problem, so it gets its own state and the unlock prompt.
         needsToken = true;
         serverReachable = true;
+        pendingSync = false;
         setSaveState("locked");
         offerUnlock();
         return false;
@@ -308,10 +317,10 @@
     }
   }
 
-  // The one honest statement a page with no backend can make: what is on screen
-  // is the built-in sample, and nothing typed here is being kept anywhere else.
-  // It is shown as soon as an /api call proves there is no API behind the page,
-  // so a static host can never again look like a working deployment.
+  // The one honest statement a page with no backend can make: there is no data
+  // on screen and nothing typed here is kept anywhere. It is shown as soon as an
+  // /api call proves there is no API behind the page, so a static host can never
+  // again look like a working deployment.
   function renderSyncBanner() {
     const el = document.getElementById("syncBanner");
     if (!el) return;
@@ -323,16 +332,36 @@
     el.hidden = false;
     el.textContent = "";
     const title = document.createElement("strong");
-    title.textContent = "This page has no backend - the board below is sample data.";
+    title.textContent = "This page has no backend - the board is empty and nothing is saved.";
     const body = document.createElement("span");
     body.textContent =
-      "No API answered at " + API_BASE + ", so nothing here is saved and no other " +
-      "device can see it. This happens when only the dashboard is published (for " +
-      "example to GitHub Pages). Point the page at a running backend by setting " +
-      "window.SHARONDALE_API before app.js loads - see DEPLOY.md.";
+      "No API answered at " + API_BASE + ", so this board holds no data and anything " +
+      "added to it is lost on reload and invisible to other devices. This happens when " +
+      "only the dashboard is published (for example to GitHub Pages). Point the page " +
+      "at a running backend by setting window.SHARONDALE_API before app.js loads - " +
+      "see DEPLOY.md.";
     el.appendChild(title);
     el.appendChild(body);
   }
+
+  // With no backend, a form submit must not add a row and then say "Task added
+  // to the board": that row is gone on reload. The submit is stopped before
+  // the form's own handler runs (the capture phase), so nothing is added.
+  function blockWithoutBackend(formId) {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    form.addEventListener("submit", function (e) {
+      if (!backendMissing) return;
+      // preventDefault alone is not enough: a form's own listener still runs
+      // and still toasts "added", so nothing after this point may hear it.
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      renderSyncBanner();
+      toast("Nothing is saved here: this page has no backend.");
+    }, true);
+  }
+  ["composer", "complaintForm", "requestForm", "shoppingForm", "peopleForm", "phonebookForm"]
+    .forEach(blockWithoutBackend);
 
   function scheduleRetry() {
     if (syncTimer) return;
@@ -359,8 +388,12 @@
       // reported separately from the retryable offline state.
       if ((res.status === 404 || res.status === 405) ||
           !(res.headers.get("content-type") || "").includes("application/json")) {
+        // Show the banner now rather than after the caller gets around to it:
+        // writeCache() refuses to run while this is set, and loadBoardData is
+        // awaited before anything else touches storage.
         backendMissing = true;
         serverReachable = false;
+        renderSyncBanner();
         return null;
       }
       if (!res.ok) throw new Error("HTTP " + res.status);
@@ -379,7 +412,9 @@
       };
     } catch (error) {
       serverReachable = false;
-      // Fall back to the offline cache so the dashboard still opens.
+      // A real 404/405 or HTML answer above means there is no backend, so the
+      // fetch above never threw for that case - only an unreachable one lands
+      // here. Fall back to the offline cache so the dashboard still opens.
       const cached = readCache();
       if (!cached) {
         toast("Cannot reach the server and no offline copy exists: " + error.message);
@@ -443,15 +478,23 @@
     saveState = state;
     const el = document.getElementById("saveState");
     if (!el) return;
+    // A static host does not make the chip "offline": it is not coming back,
+    // so promising a retry would be the same lie as the sample board. Say once,
+    // plainly, that nothing is kept.
+    const noBackend = state === "offline" && backendMissing;
     el.classList.toggle("saving", state === "saving");
     el.classList.toggle("offline", state === "offline");
     el.classList.toggle("locked", state === "locked");
     el.classList.toggle("error", state === "error");
     el.textContent =
+      noBackend ? "No backend - nothing saved" :
+      state === "saving" ? "Saving..." :
       state === "offline" ? "Offline - will retry" :
       state === "locked" ? "Locked - enter code" :
       state === "error" ? "Could not save" : "Saved";
     el.title =
+      noBackend ? "There is no server behind this page, so nothing here is saved and a reload discards it." :
+      state === "saving" ? "Contacting the server to save the board." :
       state === "offline" ? "The server is unreachable. Your change is kept here and will be sent when it comes back." :
       state === "locked" ? "You can browse, but changes need the access code. Click to enter it." :
       state === "error" ? "The board could not be saved." :
@@ -651,13 +694,28 @@
   // The KPI cards that used to sit above the calendar are gone, but the counts
   // they showed still drive the sidebar badge, the bell, and the focus panel.
   function renderKpis() {
+    // A board that is known to have no backend has no figures: a "1 / 3 tasks
+    // completed today" ring is exactly the sort of number that gets trusted.
+    if (backendMissing) {
+      document.getElementById("ringFg").setAttribute("stroke-dashoffset", "999");
+      document.getElementById("ringValue").textContent = "—";
+      ["legendHigh", "legendMed", "legendLow"].forEach(function (id) {
+        document.getElementById(id).textContent = "—";
+      });
+      return;
+    }
     const todays = tasks.filter(function (t) { return t.day === todayDate; });
     const todayDone = todays.filter(function (t) { return t.done; }).length;
     const openIssues = complaints.filter(function (c) { return c.status !== "closed"; }).length;
 
-    document.getElementById("navComplaintCount").textContent = openIssues;
-    document.getElementById("bellBadge").textContent = openIssues;
-    document.getElementById("bellBtn").title = openIssues + " unresolved issue" + (openIssues === 1 ? "" : "s");
+    // With no backend there is nothing to count: leave the badges blank rather
+    // than asserting "0 open issues", which is just as wrong as the sample.
+    const badge = backendMissing ? "" : openIssues;
+    document.getElementById("navComplaintCount").textContent = badge;
+    document.getElementById("bellBadge").textContent = badge;
+    document.getElementById("bellBtn").title = backendMissing
+      ? "This page has no backend - no issues to show"
+      : openIssues + " unresolved issue" + (openIssues === 1 ? "" : "s");
 
     const pct = todays.length ? Math.round((todayDone / todays.length) * 100) : 0;
     const circumference = 2 * Math.PI * 33;
@@ -677,6 +735,9 @@
     renderBacklog();
     renderKpis();
     updateCalendarScrollState();
+    // The chip depends on backendMissing, which is only known after the first
+    // API call - by then something has usually already set it to "saving".
+    setSaveState(saveState);
   }
 
   const calendarScroll = document.getElementById("calendarScroll");
@@ -1332,9 +1393,13 @@
     if (!list) return;
 
     const pending = requests.filter(function (r) { return r.status !== "moved"; });
-    document.getElementById("navRequestCount").textContent = pending.length;
+    // "0" is itself a figure a caretaker can trust; with no backend there is
+    // nothing to count, so the badge is left blank rather than filled in.
+    document.getElementById("navRequestCount").textContent = backendMissing ? "" : pending.length;
     const summary = document.getElementById("requestsSummary");
-    summary.textContent = requests.length === 0
+    if (backendMissing) {
+      summary.textContent = "This page has no backend - no requests to show";
+    } else summary.textContent = requests.length === 0
       ? "Nothing logged yet"
       : pending.length === 0
         ? "Nothing waiting - every request has been moved to tasks"
@@ -1441,9 +1506,11 @@
     const list = document.getElementById("shoppingList");
     if (!list) return;
 
-    document.getElementById("navShoppingCount").textContent = shopping.length;
+    document.getElementById("navShoppingCount").textContent = backendMissing ? "" : shopping.length;
     const summary = document.getElementById("shoppingSummary");
-    summary.textContent = shopping.length === 0
+    summary.textContent = backendMissing
+      ? "This page has no backend - no supplies to show"
+      : shopping.length === 0
       ? "Nothing outstanding"
       : shopping.length + (shopping.length === 1 ? " item" : " items") + " still to pick up";
 
@@ -1564,8 +1631,10 @@
   function renderPeople() {
     const list = document.getElementById("peopleList");
     if (!list) return;
-    document.getElementById("navPeopleCount").textContent = people.length;
-    document.getElementById("peopleSummary").textContent = people.length === 0
+    document.getElementById("navPeopleCount").textContent = backendMissing ? "" : people.length;
+    document.getElementById("peopleSummary").textContent = backendMissing
+      ? "This page has no backend - no roster to show"
+      : people.length === 0
       ? "No one on the roster yet"
       : people.length + (people.length === 1 ? " person" : " people") + " can be assigned tasks";
 
@@ -1703,9 +1772,11 @@
     const list = document.getElementById("phonebookList");
     if (!list) return;
 
-    document.getElementById("navPhonebookCount").textContent = phonebook.length;
+    document.getElementById("navPhonebookCount").textContent = backendMissing ? "" : phonebook.length;
     const summary = document.getElementById("phonebookSummary");
-    summary.textContent = phonebook.length === 0
+    summary.textContent = backendMissing
+      ? "This page has no backend - no contacts to show"
+      : phonebook.length === 0
       ? "No contacts yet"
       : phonebook.length + (phonebook.length === 1 ? " contact" : " contacts") +
         " for contractors, suppliers and emergencies";
@@ -2095,12 +2166,10 @@
   function start() {
     fillStaffSelect(composerAssignee);
     logActivity("Shift started - connecting to the server");
-    renderAll();
-    renderComplaints();
-    renderRequests();
-    renderShopping();
-    renderPeople();
-    renderPhonebook();
+    // Deliberately nothing is drawn yet. The sample board in this file is only
+    // ever a placeholder for the moment or two before the server answers, and
+    // drawing it first is how a page with no backend ended up showing a full
+    // board. renderAll() runs from the load below.
 
     // Whoever used this browser last stays selected; it is a convenience, not
     // shared state, so it is kept locally rather than on the server.
@@ -2115,7 +2184,20 @@
       renderSyncBanner();
       if (backendMissing) {
         setSaveState("offline");
-        logActivity("No backend answered - the board shown is the sample, not saved data");
+        // Nothing on screen came from anywhere: it is the sample in this file.
+        // Start from a blank board instead, so there are no figures, tasks or
+        // "completed today" counts to mistake for real ones.
+        tasks.length = 0;
+        complaints.length = 0;
+        shopping.length = 0;
+        recurringTasks = [];
+        people = [];
+        phonebook = [];
+        requests = [];
+        currentUser = "";
+        fillStaffSelect(composerAssignee);
+        refreshPeopleSelects();
+        logActivity("No backend answered - nothing is being saved; this board is empty");
         renderAll();
         renderComplaints();
         renderRequests();
@@ -2148,16 +2230,20 @@
         currentUser = people.length ? people[0].name : "";
       }
       refreshPeopleSelects();
-      // Seed the server on a first ever run so a new deployment is not empty.
-      if (serverReachable && tasks.length === 0 && complaints.length === 0 && shopping.length === 0) {
-        saveBoardData();
-      }
+      // Render before saving, not after: seed.mjs already seeds a new database,
+      // so the tasks this pushes up are the sample board on screen. Drawing it
+      // first made it look like data; drawing it after the write confirmed only
+      // shows those rows if the server actually kept them.
       renderAll();
       renderComplaints();
       renderRequests();
       renderShopping();
       renderPeople();
       renderPhonebook();
+      // Seed the server on a first ever run so a new deployment is not empty.
+      if (serverReachable && tasks.length === 0 && complaints.length === 0 && shopping.length === 0) {
+        saveBoardData();
+      }
       setSaveState(serverReachable ? "saved" : "offline");
       // Establishing read access does not prove write access, so probe with a
       // no-op save. If the server wants a code, the chip says so rather than the

@@ -16,8 +16,15 @@ GitHub Pages serves static files only. It cannot run `server/index.mjs`, so
 `/api/*` returned 404 and **nothing was ever saved**. It looked fine, because
 `dashboard/app.js` ships a hardcoded fallback board that looks just like the
 seeded data - a visitor saw a fully populated dashboard. The only clue was the
-header chip reading **"Offline - will retry"** and an activity entry saying
-*"Cannot reach the server and no offline copy exists"*.
+header chip reading **"Offline - will retry"**, which promised a retry against a
+host that would never answer.
+
+That page can no longer lie. When the first `/api/board` request proves there is
+no API (a 404/405 or a non-JSON answer), the dashboard **empties the board**,
+blanks the counts and the "today" ring, shows a banner saying the page has no
+backend, reads **No backend - nothing saved** in the header, refuses form
+submits with the text still in the form, and writes nothing to its offline
+cache. `tests/qa-static-host.mjs` proves all of that on every `npm test`.
 
 The Pages workflow has been removed. **Do not put this app on a static-only
 host** (GitHub Pages, plain S3, a CDN) unless you only want a demo. If you keep
@@ -243,8 +250,9 @@ two agree, so this repo enforces it:
    result - a green run means the page and the backend are talking.
 
 Without `SHARONDALE_API` the workflow fails instead of publishing. A page alone
-loads a hardcoded fallback board that looks real but never saves, which is how
-the original deployment looked healthy while losing everything.
+would show an empty board labelled **No backend - nothing saved**, which is how
+the original deployment should have looked instead of a healthy one losing
+everything.
 
 ---
 
@@ -314,9 +322,11 @@ The chip states:
 
 | Chip | Meaning |
 | --- | --- |
+| **Saving...** | Contacting the server; nothing is confirmed yet. |
 | **Saved** | Unlocked, and the server confirmed the last write. |
 | **Locked - enter code** | Readable, but changes need the code. Click it to enter one. |
 | **Offline - will retry** | The server is unreachable; the change is held and retried. |
+| **No backend - nothing saved** | The page was published without an API. The board is empty, typing into it is refused, and nothing is kept. |
 
 **Be aware:** the code stops people *changing* the board, not *reading* it.
 Anyone with the URL can still see every task and complaint. If the board will
@@ -382,6 +392,7 @@ runs on every push, daily, and on demand.
 Until that variable is set the workflow skips instead of failing. Once it is
 set, a red check means the live app is genuinely broken - which is what the old
 Pages workflow never did. If it is red, the failure text names the exact problem
+
 - a 404 means the backend is gone, `writesProtected:false` means the access code
 was cleared, and a temp `database` path means the volume detached.
 
