@@ -171,6 +171,10 @@
   let serverReachable = null; // null = unknown yet
   let pendingSync = false;    // local changes not yet confirmed by the server
   let syncTimer = null;
+  // True from the moment the API has been tried and found to be a static host -
+  // a page served by GitHub Pages, S3 or any CDN. The board on screen is then the
+  // sample from this file, not data, and must be labelled as such.
+  let backendMissing = false;
 
   function isValidTask(t) {
     return t && (typeof t.id === "number" || typeof t.id === "string") &&
@@ -289,6 +293,7 @@
       }
       needsToken = false;
       serverReachable = true;
+      backendMissing = false;
       pendingSync = false;
       setSaveState("saved");
       return true;
@@ -303,8 +308,37 @@
     }
   }
 
+  // The one honest statement a page with no backend can make: what is on screen
+  // is the built-in sample, and nothing typed here is being kept anywhere else.
+  // It is shown as soon as an /api call proves there is no API behind the page,
+  // so a static host can never again look like a working deployment.
+  function renderSyncBanner() {
+    const el = document.getElementById("syncBanner");
+    if (!el) return;
+    if (!backendMissing) {
+      el.hidden = true;
+      el.textContent = "";
+      return;
+    }
+    el.hidden = false;
+    el.textContent = "";
+    const title = document.createElement("strong");
+    title.textContent = "This page has no backend - the board below is sample data.";
+    const body = document.createElement("span");
+    body.textContent =
+      "No API answered at " + API_BASE + ", so nothing here is saved and no other " +
+      "device can see it. This happens when only the dashboard is published (for " +
+      "example to GitHub Pages). Point the page at a running backend by setting " +
+      "window.SHARONDALE_API before app.js loads - see DEPLOY.md.";
+    el.appendChild(title);
+    el.appendChild(body);
+  }
+
   function scheduleRetry() {
     if (syncTimer) return;
+    // A page with no backend at all has nothing to retry against, and a timer
+    // that fires every five seconds against a static host is pure noise.
+    if (backendMissing) return;
     syncTimer = setTimeout(function () {
       syncTimer = null;
       if (pendingSync) syncNow();
@@ -320,7 +354,17 @@
   async function loadBoardData() {
     try {
       const res = await api("/board", { method: "GET" });
+      // A static host answers /api/board with its own 404 page, usually as HTML.
+      // That is not "the server is briefly down" - there is no server - so it is
+      // reported separately from the retryable offline state.
+      if ((res.status === 404 || res.status === 405) ||
+          !(res.headers.get("content-type") || "").includes("application/json")) {
+        backendMissing = true;
+        serverReachable = false;
+        return null;
+      }
       if (!res.ok) throw new Error("HTTP " + res.status);
+      backendMissing = false;
       const board = await res.json();
       serverReachable = true;
       pendingSync = false;
@@ -2066,6 +2110,20 @@
     } catch (e) { /* optional */ }
 
     loadBoardData().then(function (board) {
+      // A page with no backend is labelled before anything else is rendered, so
+      // the sample board is never mistaken for saved data.
+      renderSyncBanner();
+      if (backendMissing) {
+        setSaveState("offline");
+        logActivity("No backend answered - the board shown is the sample, not saved data");
+        renderAll();
+        renderComplaints();
+        renderRequests();
+        renderShopping();
+        renderPeople();
+        renderPhonebook();
+        return;
+      }
       if (board) {
         tasks.length = 0;
         board.tasks.forEach(function (t) { tasks.push(t); });

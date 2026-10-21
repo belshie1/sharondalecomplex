@@ -250,6 +250,20 @@
   .page-head .range{color:var(--muted); font-size:14px; margin-top:4px;}
   .page-head-actions{display:flex; gap:10px; flex-wrap:wrap;}
 
+  /* Explains why the board on screen is not live. Deliberately not dismissible:
+     until a backend answers, every change made here is lost. */
+  .sync-banner{
+    margin:0 0 14px; padding:11px 14px; border-radius:10px;
+    border:1px solid #E3C48A; background:var(--amber-pale); color:#6B4E16;
+    font-size:13px; line-height:1.45;
+  }
+  .sync-banner strong{display:block; margin-bottom:2px; color:#5A4011;}
+  .sync-banner code{
+    font-size:12px; padding:1px 5px; border-radius:4px;
+    background:rgba(255,255,255,0.55);
+  }
+  .sync-banner[hidden]{display:none;}
+
   /* ---- Content grid ---- */
   .content-grid{
     display:grid;
@@ -520,6 +534,10 @@
   .task-card.done{background:var(--forest-pale); border-color:rgba(23,72,58,0.25);}
   .task-card.done .t-title{text-decoration:line-through; color:var(--muted);}
   .task-card .t-top{display:flex; align-items:flex-start; gap:8px;}
+  /* The text column must be allowed to grow: without this its basis is its
+     content, and a long wrapped title would instead be squeezed into a ribbon by
+     the action row below it. */
+  .task-card .t-top > div{min-width:0; flex:1 1 auto;}
   .task-card .status-dot{
     width:9px;height:9px;border-radius:50%; margin-top:5px; flex:0 0 auto;
     background:var(--muted);
@@ -529,10 +547,10 @@
   .task-card.priority-low .status-dot{background:var(--forest);}
   .task-card.done .status-dot{background:var(--forest);}
   .task-card .t-title{font-size:13px; font-weight:600; line-height:1.3;}
-  /* The action buttons keep a 44px touch target in the card's empty right-hand
-     gutter, so the title must not reach into that strip or it would intercept
-     clicks meant for the buttons. */
-  .task-card .t-top{padding-right:16px;}
+  /* The action buttons moved out of the title's right-hand gutter and onto their
+     own row, so the title may use the full width; 16px here only stole 19% of a
+     128px column's text. */
+  .task-card .t-top{padding-right:0;}
   .task-card .t-loc{font-size:11.5px; color:var(--muted); display:flex; align-items:center; gap:4px;}
   .task-card .t-loc .icon{width:12px;height:12px;}
   .task-card .t-assignee{
@@ -581,7 +599,7 @@
        44px touch targets, so the buttons give up some size rather than spilling
        past the card edge - outside the card they sit on top of the next day and
        their clicks land there instead. */
-    flex:1 0 100%; justify-content:flex-start; min-width:0;
+    flex:1 0 auto; justify-content:flex-start; min-width:0;
     position:relative; z-index:3;
   }
   /* Stacking: the title wraps taller than the buttons, so without this the title
@@ -596,8 +614,8 @@
        so the cards keep their compact look while the controls reach 44px where
        the column allows it, and shrink evenly (never below 32px) where it does
        not. */
-    width:44px;height:44px;padding:0;border:0;border-radius:6px;
-    flex:0 1 44px; min-width:32px;
+    width:auto; max-width:44px; height:44px;padding:0;border:0;border-radius:6px;
+    flex:0 1 44px; min-width:0;
     background:transparent;cursor:pointer;
   }
   .task-card .task-assign-me{color:var(--forest);}
@@ -1296,15 +1314,16 @@
     .focus-card .legend-row{gap:5px;font-size:11.5px;}
     .focus-card .activity-feed{grid-column:1 / -1;}
     .focus-card .activity-list{max-height:150px;}
+    /* Buttons are on their own row now, so the title may use the full width. */
     .task-card .t-top{padding-right:0;}
     .task-card .drag-handle{right:8px;}
     .task-card .t-meta{gap:6px;}
+    /* The delete button used to be pushed to the far right (margin-left:auto)
+       while the other icons sat at the start, which left a gap in the middle of
+       the row and made a three-icon card look different from a two-icon one.
+       All controls now share the same left-aligned flow. */
     .task-card .task-delete{
       position:static;
-      width:40px;
-      height:40px;
-      flex:0 0 40px;
-      margin-left:auto;
     }
     .task-card .task-delete .icon{width:16px;height:16px;}
     .calendar-hint{
@@ -1377,18 +1396,30 @@
     }
     .board-header{padding-top:20px;}
     .board-body{padding-bottom:6px;}
-    .task-card .task-delete{
-      width:44px;
-      height:44px;
-      flex-basis:44px;
-    }
+    /* Kept for the two-button case. */
     .task-card .task-delete .icon{width:17px;height:17px;}
     .day-col{min-height:210px;padding:6px;gap:7px;}
     .task-card{padding:9px 8px;gap:6px;}
     .task-card .t-title{font-size:13.5px;line-height:1.35;overflow-wrap:anywhere;}
     .task-card .t-loc{font-size:10.5px;align-items:flex-start;}
     .task-card .t-loc .icon{margin-top:1px;}
-    .task-card .t-meta{justify-content:flex-start;}
+    /* On a phone the touch targets win over compactness. The priority label
+       takes the first line of the row and the buttons the second, spanning the
+       card's full width, so each stays a full 44px square instead of being
+       squeezed into a 76px strip. */
+    .task-card .t-meta{justify-content:flex-start; row-gap:2px;}
+    .task-card .t-pill,
+    .task-card .t-recurring{flex:1 0 100%;}
+    .task-card .t-actions{gap:2px; flex-basis:100%; justify-content:flex-start;}
+    .task-card .t-actions button{
+      width:44px;
+      min-width:44px;
+      max-width:44px;
+      height:44px;
+      flex:0 0 44px;
+      padding:0;
+    }
+    .task-card .t-actions button .icon{width:16px;height:16px;}
     .task-card .t-moved{overflow-wrap:anywhere;}
     .c-actions{gap:8px;}
     .c-actions .btn{flex:1 1 140px;min-height:44px;padding:9px 10px;}
