@@ -91,7 +91,7 @@ export default async function run(page, ui) {
   // Task deletion shares the dialog and must keep its own wording and behaviour.
   await page.locator('.nav-item[data-view="tasks"]').dispatchEvent("click");
   await page.waitForTimeout(200);
-  const card = page.locator(".task-card").first();
+  const card = page.locator("#boardBody .task-card").first();
   const cardId = await card.getAttribute("data-id");
   await card.locator(".task-delete").click();
   await page.locator("#deletePassword").waitFor({ state: "visible", timeout: 5000 });

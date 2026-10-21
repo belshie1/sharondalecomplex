@@ -559,8 +559,13 @@
     font-size:8.5px; letter-spacing:0.08em; color:#fff;
     background:rgba(0,0,0,0.28); padding:1px 5px; border-radius:4px;
   }
-  .task-card .t-meta{display:flex; align-items:center; justify-content:space-between; margin-top:1px;}
-  .task-card .t-pill{font-size:10px; color:var(--muted);}
+  /* The actions stay on their own line, to the right, and the row never
+     overflows the card. Three 44px buttons plus a priority pill cannot fit a
+     128px column, so instead of spilling past the edge (where the buttons sit on
+     top of the next column and are effectively unclickable) the pill drops to a
+     line above and the buttons keep the row to themselves. */
+  .task-card .t-meta{display:flex; align-items:center; justify-content:space-between; margin-top:1px; flex-wrap:wrap; row-gap:4px; min-width:0;}
+  .task-card .t-pill{font-size:10px; color:var(--muted); flex:0 1 auto; min-width:0;}
   .task-card .t-recurring{font-size:10px; color:var(--forest); font-weight:700; text-transform:uppercase; letter-spacing:0.04em;}
   .task-card .t-moved{
     font-size:10px; color:var(--amber-dark); font-style:italic;
@@ -570,7 +575,15 @@
     position:absolute; top:8px; right:31px; color:#C7CDC3; display:flex; gap:2px;
   }
   .task-card .drag-handle .icon{width:13px;height:13px;}
-  .task-card .t-actions{display:flex; align-items:center; gap:2px; margin-left:auto; position:relative;}
+  .task-card .t-actions{
+    display:flex; align-items:center; gap:2px;
+    /* On its own line, and able to shrink: a 128px day column cannot hold three
+       44px touch targets, so the buttons give up some size rather than spilling
+       past the card edge - outside the card they sit on top of the next day and
+       their clicks land there instead. */
+    flex:1 0 100%; justify-content:flex-start; min-width:0;
+    position:relative; z-index:3;
+  }
   /* Stacking: the title wraps taller than the buttons, so without this the title
      box would paint over the actions and swallow their taps. */
   .task-card .t-top > .t-title{position:relative; z-index:2;}
@@ -580,8 +593,11 @@
   .task-card .task-assign-me{
     display:flex;align-items:center;justify-content:center;
     /* Icon-only buttons still need a touch-sized hit area. The icons stay 14px,
-       so the cards keep their compact look while the controls reach 44px. */
+       so the cards keep their compact look while the controls reach 44px where
+       the column allows it, and shrink evenly (never below 32px) where it does
+       not. */
     width:44px;height:44px;padding:0;border:0;border-radius:6px;
+    flex:0 1 44px; min-width:32px;
     background:transparent;cursor:pointer;
   }
   .task-card .task-assign-me{color:var(--forest);}
@@ -1282,7 +1298,7 @@
     .focus-card .activity-list{max-height:150px;}
     .task-card .t-top{padding-right:0;}
     .task-card .drag-handle{right:8px;}
-    .task-card .t-meta{flex-wrap:wrap;gap:6px;}
+    .task-card .t-meta{gap:6px;}
     .task-card .task-delete{
       position:static;
       width:40px;

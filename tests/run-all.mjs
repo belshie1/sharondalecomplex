@@ -123,9 +123,24 @@ if (!runner) {
 }
 
 console.log(`Starting backend on port ${PORT}...`);
+// The suites reset the board constantly, so they must never run against the
+// cloud. .env.local now names a real Supabase project, and SHARONDALE_DB alone
+// no longer implies SQLite, so Supabase is switched off explicitly here.
 const server = spawn("node", ["server/index.mjs"], {
   cwd: root,
-  env: { ...process.env, PORT: String(PORT), SHARONDALE_DB: process.env.SHARONDALE_DB || ":memory:" },
+  env: {
+    ...process.env,
+    PORT: String(PORT),
+    SHARONDALE_DB: process.env.SHARONDALE_DB || ":memory:",
+    SUPABASE_URL: "",
+    SUPABASE_SECRET_KEY: "",
+    SUPABASE_SERVICE_ROLE_KEY: "",
+    SUPABASE_KEY: "",
+    SUPABASE_DB_URL: "",
+    // Writes are protected in production tests; locally the suites write
+    // directly, exactly as a visitor who has entered the code would.
+    SHARONDALE_TOKEN: "",
+  },
   stdio: ["ignore", "pipe", "pipe"],
 });
 let serverLog = "";

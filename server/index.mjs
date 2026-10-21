@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { storage, initStorage, pingStorage, storageDescription, closeStorage, usingSupabase } from "./db.mjs";
+import { storage, initStorage, pingStorage, storageDescription, closeStorage, usingSupabaseStorage } from "./db.mjs";
 import { seedIfEmpty } from "./seed.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -236,7 +236,7 @@ async function handleApi(req, res, pathname) {
       // writable means the board will not survive a restart. A ":memory:"
       // database is thrown away when the process exits. With Supabase this says
       // so explicitly, because there is no path to inspect.
-      database: usingSupabase ? "supabase: " + storageDescription() : DB_FILE === ":memory:" ? ":memory: (not persisted)" : DB_FILE,
+      database: usingSupabaseStorage() ? "supabase: " + storageDescription() : DB_FILE === ":memory:" ? ":memory: (not persisted)" : DB_FILE,
     });
   }
 
@@ -410,8 +410,11 @@ ready = true;
 // unprotected board and a database that will not survive a restart -- so they
 // are reported here, where a host's log captures them on every deploy.
 function reportStorageRisk() {
-  if (usingSupabase) {
+  if (usingSupabaseStorage()) {
+    // storageDescription() names the transport, which is what actually matters:
+    // a pooler string, the direct host, or the HTTPS Data API fallback.
     console.log("Storage: Supabase Postgres - the board survives restarts without a volume.");
+    console.log(`           ${storageDescription()}`);
     return;
   }
   if (DB_FILE === ":memory:") {

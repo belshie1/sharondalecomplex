@@ -23,6 +23,11 @@ import { resetBoard } from "./helpers.mjs";
 export default async function run(page, ui) {
   const results = {};
   await resetBoard(page);
+  // The suites run against a board that needs no access code, so the prompt on
+  // boot can only be a leftover and would block every click below.
+  results.unlockPromptDismissed = await page
+    .locator("#tokenModal")
+    .evaluate((el) => !el.classList.contains("open"));
 
   // 1. Weekly report modal opens and reports live counts
   await ui.click((await ui.snapshot()).match(/(@e\d+) button "Weekly report"/)[1]);
@@ -37,19 +42,21 @@ export default async function run(page, ui) {
   results.modalClosed = await page.locator("#reportModal").evaluate(el => !el.classList.contains("open"));
 
   // 3. Clicking a task card toggles its completion state
-  const beforeDone = await page.evaluate(() => document.querySelectorAll(".task-card.done").length);
-  await page.locator(".task-card").first().click();
+  const beforeDone = await page.evaluate(() => document.querySelectorAll("#boardBody .task-card.done").length);
+  await page.locator("#boardBody .task-card").first().click();
   await page.waitForTimeout(400);
-  const afterDone = await page.evaluate(() => document.querySelectorAll(".task-card.done").length);
+  const afterDone = await page.evaluate(() => document.querySelectorAll("#boardBody .task-card.done").length);
   results.toggleWorks = beforeDone !== afterDone;
 
-  // 4. Task removal requires the password and preserves the task on cancel
+  // 4. Task removal requires the password and preserves the task on cancel.
   // Re-query the card: the toggle above re-rendered the board, so an earlier
-  // handle would point at a detached node.
-  const removableTask = page.locator(".task-card").first();
+  // handle would point at a detached node. The delete button is clicked
+  // directly - it is an icon-only control, and a click on the row's padding
+  // beside it is not a user action the suite should rely on.
+  const removableTask = page.locator("#boardBody .task-card").first();
   const removableTaskId = await removableTask.getAttribute("data-id");
-  const taskAfterRemoval = page.locator('.task-card[data-id="' + removableTaskId + '"]');
-  await page.locator('.task-card[data-id="' + removableTaskId + '"] .task-delete').click();
+  const taskAfterRemoval = page.locator('#boardBody .task-card[data-id="' + removableTaskId + '"]');
+  await taskAfterRemoval.locator(".task-delete").click();
   await page.locator("#deletePassword").waitFor({ state: "visible", timeout: 5000 });
   await page.locator("#deletePassword").fill("0000");
   await page.locator("#deleteSubmit").click();
@@ -59,7 +66,7 @@ export default async function run(page, ui) {
   await page.locator("#cancelDelete").click();
   await page.waitForTimeout(200);
   results.cancelPreservesTask = (await taskAfterRemoval.count()) === 1;
-  await page.locator('.task-card[data-id="' + removableTaskId + '"] .task-delete').click();
+  await taskAfterRemoval.locator(".task-delete").click();
   await page.locator("#deletePassword").waitFor({ state: "visible", timeout: 5000 });
   await page.locator("#deletePassword").fill("5879");
   await page.locator("#deleteSubmit").click();

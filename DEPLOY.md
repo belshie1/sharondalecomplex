@@ -78,6 +78,23 @@ What goes where:
    Set it as `SUPABASE_DB_URL`; alternatively set `SUPABASE_DB_HOST` to the
    pooler host (e.g. `aws-0-eu-west-1.pooler.supabase.com`).
 
+   **The pooler matters on Vercel specifically.** A serverless function makes no
+   persistent TCP connections, so every request would open a new Session-pooler
+   session, and the pooler's client limit is reached quickly under real use.
+   With a pooler string set, the app therefore uses Supabase's **transaction
+   pooler on port 6543** (one server connection per statement, which is what a
+   function needs) and keeps the database name from the string. Locally, where
+   one process holds a few connections, port 5432 is used as pasted. Override
+   with `SUPABASE_DB_PORT` if you want the other mode.
+
+4. Without a pooler string the app still works: it tries the direct host once at
+   boot, and if that is unreachable switches to the **HTTPS Data API**
+   (`https://<ref>.supabase.co/rest/v1`, port 443 - IPv4 and IPv6, no add-on).
+   That path cannot create tables, so run `server/supabase-schema.sql` in the SQL
+   Editor first. The boot log says which path was chosen, and `/api/health`
+   reports it under `storage`. Pin it with `SUPABASE_TRANSPORT=rest` or `tcp` if
+   you do not want the one-off probe.
+
 ### 2. Deploy with Vercel from GitHub
 
 1. Create a token at <https://vercel.com/account/tokens>.
@@ -92,6 +109,11 @@ What goes where:
    | `SUPABASE_SECRET_KEY` | `sb_secret_...` (or a legacy service_role key) |
    | `SUPABASE_DB_URL` | the Session pooler connection string |
    | `SHARONDALE_ALLOWED_ORIGINS` | the Pages origin, if you keep Pages: `https://belshie1.github.io` |
+
+   `SUPABASE_DB_URL` is optional, but with it the app uses the transaction
+   pooler on 6543, which is the mode a function needs (see step 3). Without it
+   the board is served over the HTTPS Data API, which works but opens a REST
+   call per read and cannot create the table.
 
 4. In GitHub: **Settings -> Secrets and variables -> Actions** and add secrets
    `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`.
@@ -248,9 +270,21 @@ dashboard still works - it just refreshes on the next load instead of live.
 | --- | --- |
 | `PORT` | Port to listen on. Most hosts set this for you. |
 | `SHARONDALE_TOKEN` | **Required in production.** The write access code. |
-| `SHARONDALE_DB` | Path to the database, e.g. `/app/data/sharondale.db`. |
+| `SHARONDALE_DB` | Path to the database, e.g. `/app/data/sharondale.db`. Ignored when Supabase is configured. |
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co`. With a key, switches storage to Supabase Postgres. |
+| `SUPABASE_SECRET_KEY` | `sb_secret_...` (or `SUPABASE_SERVICE_ROLE_KEY`). Server-side only. |
+| `SUPABASE_DB_URL` | Optional Session pooler connection string. Forces plain IPv4 Postgres. |
+| `SUPABASE_DB_HOST` / `_PORT` / `_USER` / `_NAME` | The same, piece by piece, if you would rather not paste a URL. |
+| `SUPABASE_TRANSPORT` | `tcp` or `rest`. Pins the Supabase path and skips the boot probe. |
 | `SHARONDALE_ALLOWED_ORIGINS` | Comma-separated browser origins allowed to call the API, needed only when the page is hosted separately (e.g. `https://belshie1.github.io`). |
 | `HOST` | Interface to bind. Defaults to `0.0.0.0`. |
+
+`npm start` reads `.env.local` and then `.env` from the project root, so local
+development picks up the Supabase settings without exporting anything. A
+variable already present in the environment always wins, so a host's settings are
+never overridden by a file in the repo. `npm test` deliberately switches Supabase
+off: the suites reset the board constantly and must never run against the live
+project.
 
 ---
 

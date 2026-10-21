@@ -9,7 +9,11 @@
  *     reachable from a host with no disk. See supabase-db.mjs.
  *   * SQLite, via node:sqlite (built into Node 22+), otherwise. Zero npm
  *     dependencies, perfect locally and on a machine with a volume.
+ *
+ * The environment files are read first, so the choice below sees .env.local the
+ * same way it sees a cloud host's variables.
  */
+import { envFiles } from "./env.mjs";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
@@ -20,136 +24,165 @@ const DEFAULT_FILE = path.join(here, "..", "data", "sharondale.db");
 
 export const usingSupabase = !!(process.env.SUPABASE_URL && (process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY));
 
+export const dbFile = process.env.SHARONDALE_DB || DEFAULT_FILE;
+
 // A path of ":memory:" gives each process a throwaway database, which the API
-// tests use so they never touch real data.
-const dbFile = process.env.SHARONDALE_DB || DEFAULT_FILE;
+// tests use so they never touch real data. It also settles the storage choice:
+// marking that intent must not be quietly overridden by a Supabase URL left in
+// .env.local, or `npm test` (and any script that asks for a scratch board) would
+// reset the live project instead.
+const useSupabase = usingSupabase && dbFile !== ":memory:";
 
-if (!usingSupabase && dbFile !== ":memory:") {
-  fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+export function usingSupabaseStorage() {
+  return useSupabase;
 }
 
-export const db = usingSupabase ? null : new DatabaseSync(dbFile);
+// SQLite is set up only when it is actually in use. The whole block (connection,
+// schema, migrations) lives in the else branch because it runs top to bottom at
+// import time: with Supabase selected there is no SQLite handle, and evaluating
+// any of it would fail on a host that has neither a writable disk nor node:sqlite.
+export let db = null;
 
-// WAL keeps reads fast while a write is in flight; it is a no-op in memory.
-if (!usingSupabase && dbFile !== ":memory:") {
-  db.exec("PRAGMA journal_mode = WAL;");
+if (!useSupabase) {
+  if (dbFile !== ":memory:") {
+    fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+  }
+
+  db = new DatabaseSync(dbFile);
+
+  // WAL keeps reads fast while a write is in flight; it is a no-op in memory.
+  if (dbFile !== ":memory:") {
+    db.exec("PRAGMA journal_mode = WAL;");
+  }
+  db.exec("PRAGMA foreign_keys = ON;");
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tasks (
+      id           TEXT PRIMARY KEY,
+      title        TEXT NOT NULL,
+      location     TEXT NOT NULL,
+      due_date     TEXT NOT NULL DEFAULT '',
+      priority     TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
+      assignee     TEXT NOT NULL DEFAULT '',
+      created_by   TEXT NOT NULL DEFAULT '',
+      done         INTEGER NOT NULL DEFAULT 0,
+      photo        TEXT,
+      moved        TEXT,
+      recurring    INTEGER NOT NULL DEFAULT 0,
+      recurring_id TEXT,
+      sort_order   INTEGER NOT NULL DEFAULT 0,
+      updated_at   TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS complaints (
+      id         INTEGER PRIMARY KEY,
+      owner      TEXT NOT NULL,
+      apt        TEXT NOT NULL,
+      type       TEXT NOT NULL,
+      age        TEXT NOT NULL,
+      status     TEXT NOT NULL CHECK (status IN ('open','progress','closed')),
+      note       TEXT,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS shopping (
+      id         INTEGER PRIMARY KEY,
+      label      TEXT NOT NULL,
+      qty        INTEGER NOT NULL DEFAULT 1,
+      added_by   TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL
+    );
+
+    -- People are a first-class list now rather than a constant in the client, so
+    -- the caretaker can add and remove names without a code change.
+    CREATE TABLE IF NOT EXISTS people (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL UNIQUE,
+      role       TEXT NOT NULL DEFAULT '',
+      color      TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    -- Recurring templates are stored server-side so every device re-applies the
+    -- same weekly tasks on load, instead of each browser inventing its own.
+    CREATE TABLE IF NOT EXISTS recurring_tasks (
+      id       TEXT PRIMARY KEY,
+      title    TEXT NOT NULL,
+      location TEXT NOT NULL,
+      day      TEXT NOT NULL,
+      priority TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
+      assignee TEXT NOT NULL DEFAULT ''
+    );
+
+    -- The phonebook holds external contacts (contractors, suppliers, emergency
+    -- numbers) that are not staff, so they live separately from the people
+    -- roster rather than being assignable work targets.
+    CREATE TABLE IF NOT EXISTS phonebook (
+      id         TEXT PRIMARY KEY,
+      name       TEXT NOT NULL,
+      company    TEXT NOT NULL DEFAULT '',
+      phone      TEXT NOT NULL DEFAULT '',
+      note       TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    -- Task requests are work that has been reported but not yet accepted onto the
+    -- weekly board: a request is logged here first, and only becomes a task when
+    -- the caretaker moves it across. They are kept apart from the tasks table on
+    -- purpose, so the calendar and the weekly report never count something that
+    -- nobody has agreed to do yet.
+    CREATE TABLE IF NOT EXISTS task_requests (
+      id           TEXT PRIMARY KEY,
+      title        TEXT NOT NULL,
+      location     TEXT NOT NULL,
+      priority     TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
+      requested_by TEXT NOT NULL DEFAULT '',
+      note         TEXT NOT NULL DEFAULT '',
+      status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','moved')),
+      task_id      TEXT,
+      sort_order   INTEGER NOT NULL DEFAULT 0,
+      updated_at   TEXT NOT NULL
+    );
+  `);
+
+  // Lightweight migrations for databases created before a column existed.
+  // ADD COLUMN is cheap and idempotent, so an existing deployment keeps its data
+  // instead of needing a rebuild.
+  function ensureColumn(table, column, definition) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (cols.some((c) => c.name === column)) return;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+  }
+
+  ensureColumn("tasks", "created_by", "TEXT NOT NULL DEFAULT ''");
 }
-if (!usingSupabase) db.exec("PRAGMA foreign_keys = ON;");
-
-if (!usingSupabase) db.exec(`
-  CREATE TABLE IF NOT EXISTS tasks (
-    id           TEXT PRIMARY KEY,
-    title        TEXT NOT NULL,
-    location     TEXT NOT NULL,
-    due_date     TEXT NOT NULL DEFAULT '',
-    priority     TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
-    assignee     TEXT NOT NULL DEFAULT '',
-    created_by   TEXT NOT NULL DEFAULT '',
-    done         INTEGER NOT NULL DEFAULT 0,
-    photo        TEXT,
-    moved        TEXT,
-    recurring    INTEGER NOT NULL DEFAULT 0,
-    recurring_id TEXT,
-    sort_order   INTEGER NOT NULL DEFAULT 0,
-    updated_at   TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS complaints (
-    id         INTEGER PRIMARY KEY,
-    owner      TEXT NOT NULL,
-    apt        TEXT NOT NULL,
-    type       TEXT NOT NULL,
-    age        TEXT NOT NULL,
-    status     TEXT NOT NULL CHECK (status IN ('open','progress','closed')),
-    note       TEXT,
-    updated_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS shopping (
-    id         INTEGER PRIMARY KEY,
-    label      TEXT NOT NULL,
-    qty        INTEGER NOT NULL DEFAULT 1,
-    added_by   TEXT NOT NULL DEFAULT '',
-    updated_at TEXT NOT NULL
-  );
-
-  -- People are a first-class list now rather than a constant in the client, so
-  -- the caretaker can add and remove names without a code change.
-  CREATE TABLE IF NOT EXISTS people (
-    id         TEXT PRIMARY KEY,
-    name       TEXT NOT NULL UNIQUE,
-    role       TEXT NOT NULL DEFAULT '',
-    color      TEXT NOT NULL DEFAULT '',
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
-  );
-
-  -- Recurring templates are stored server-side so every device re-applies the
-  -- same weekly tasks on load, instead of each browser inventing its own.
-  CREATE TABLE IF NOT EXISTS recurring_tasks (
-    id       TEXT PRIMARY KEY,
-    title    TEXT NOT NULL,
-    location TEXT NOT NULL,
-    day      TEXT NOT NULL,
-    priority TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
-    assignee TEXT NOT NULL DEFAULT ''
-  );
-
-  -- The phonebook holds external contacts (contractors, suppliers, emergency
-  -- numbers) that are not staff, so they live separately from the people
-  -- roster rather than being assignable work targets.
-  CREATE TABLE IF NOT EXISTS phonebook (
-    id         TEXT PRIMARY KEY,
-    name       TEXT NOT NULL,
-    company    TEXT NOT NULL DEFAULT '',
-    phone      TEXT NOT NULL DEFAULT '',
-    note       TEXT NOT NULL DEFAULT '',
-    sort_order INTEGER NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
-  );
-
-  -- Task requests are work that has been reported but not yet accepted onto the
-  -- weekly board: a request is logged here first, and only becomes a task when
-  -- the caretaker moves it across. They are kept apart from the tasks table on
-  -- purpose, so the calendar and the weekly report never count something that
-  -- nobody has agreed to do yet.
-  CREATE TABLE IF NOT EXISTS task_requests (
-    id           TEXT PRIMARY KEY,
-    title        TEXT NOT NULL,
-    location     TEXT NOT NULL,
-    priority     TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
-    requested_by TEXT NOT NULL DEFAULT '',
-    note         TEXT NOT NULL DEFAULT '',
-    status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','moved')),
-    task_id      TEXT,
-    sort_order   INTEGER NOT NULL DEFAULT 0,
-    updated_at   TEXT NOT NULL
-  );
-`);
-
-// Lightweight migrations for databases created before a column existed.
-// ADD COLUMN is cheap and idempotent, so an existing deployment keeps its data
-// instead of needing a rebuild.
-function ensureColumn(table, column, definition) {
-  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
-  if (cols.some((c) => c.name === column)) return;
-  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
-}
-
-if (!usingSupabase) ensureColumn("tasks", "created_by", "TEXT NOT NULL DEFAULT ''");
 
 const now = () => new Date().toISOString();
 
 // The storage that index.mjs actually uses. Both modules export the same
 // functions, so this is the whole switch.
-const backend = usingSupabase ? await import("./supabase-db.mjs") : {
-  readAll, replaceBoard, isSeeded, closeDb,
+//
+// The chosen backend is also re-exported here under the names seed.mjs and
+// index.mjs import, so there is exactly one code path: nothing above this line
+// at module level touches SQLite, and a Supabase deployment never runs any of
+// the SQLite code.
+const backend = useSupabase ? await import("./supabase-db.mjs") : {
+  readAll: () => sqlite().readAll(),
+  replaceBoard: replaceBoardSqlite,
+  isSeeded: () => sqlite().isSeeded(),
+  closeDb: closeDbSqlite,
   initStorage: async () => {},
   ping: async () => 0,
   storageDescription: () => `SQLite file (${dbFile})`,
 };
 
 export const storage = backend;
+export const readAll = (...args) => backend.readAll(...args);
+export const replaceBoard = (...args) => backend.replaceBoard(...args);
+export const isSeeded = (...args) => backend.isSeeded(...args);
+export const closeDb = (...args) => backend.closeDb(...args);
 
 export async function initStorage() {
   await backend.initStorage();
@@ -231,49 +264,53 @@ function taskRequestFromRow(r) {
 
 /* -------------------------------- reads -------------------------------- */
 
-export function readAll() {
-  const tasks = db
-    .prepare("SELECT * FROM tasks ORDER BY sort_order ASC, updated_at ASC")
-    .all()
-    .map(taskFromRow);
-  const complaints = db
-    .prepare("SELECT * FROM complaints ORDER BY id ASC")
-    .all()
-    .map(complaintFromRow);
-  const shopping = db
-    .prepare("SELECT * FROM shopping ORDER BY id ASC")
-    .all()
-    .map(shoppingFromRow);
-  const recurring = db
-    .prepare("SELECT * FROM recurring_tasks ORDER BY id ASC")
-    .all()
-    .map((r) => ({
-      id: r.id,
-      title: r.title,
-      location: r.location,
-      day: r.day,
-      priority: r.priority,
-      assignee: r.assignee,
-    }));
-  const people = db
-    .prepare("SELECT * FROM people ORDER BY sort_order ASC, name ASC")
-    .all()
-    .map(personFromRow);
-  const phonebook = db
-    .prepare("SELECT * FROM phonebook ORDER BY sort_order ASC, name ASC")
-    .all()
-    .map(phonebookFromRow);
-  const requests = db
-    .prepare("SELECT * FROM task_requests ORDER BY sort_order ASC, updated_at ASC")
-    .all()
-    .map(taskRequestFromRow);
-  return { tasks, complaints, shopping, recurring, people, phonebook, requests };
-}
-
-export function isSeeded() {
-  const row = db.prepare("SELECT COUNT(*) AS n FROM tasks").get();
-  return row.n > 0;
-}
+// The statements below are prepared lazily, on first use, and only exist on the
+// SQLite path. With Supabase selected none of this code runs: it belongs to the
+// fallback storage, and the module exports below are what index.mjs imports.
+const sqlite = () => ({
+  readAll: () => {
+    const tasks = db
+      .prepare("SELECT * FROM tasks ORDER BY sort_order ASC, updated_at ASC")
+      .all()
+      .map(taskFromRow);
+    const complaints = db
+      .prepare("SELECT * FROM complaints ORDER BY id ASC")
+      .all()
+      .map(complaintFromRow);
+    const shopping = db
+      .prepare("SELECT * FROM shopping ORDER BY id ASC")
+      .all()
+      .map(shoppingFromRow);
+    const recurring = db
+      .prepare("SELECT * FROM recurring_tasks ORDER BY id ASC")
+      .all()
+      .map((r) => ({
+        id: r.id,
+        title: r.title,
+        location: r.location,
+        day: r.day,
+        priority: r.priority,
+        assignee: r.assignee,
+      }));
+    const people = db
+      .prepare("SELECT * FROM people ORDER BY sort_order ASC, name ASC")
+      .all()
+      .map(personFromRow);
+    const phonebook = db
+      .prepare("SELECT * FROM phonebook ORDER BY sort_order ASC, name ASC")
+      .all()
+      .map(phonebookFromRow);
+    const requests = db
+      .prepare("SELECT * FROM task_requests ORDER BY sort_order ASC, updated_at ASC")
+      .all()
+      .map(taskRequestFromRow);
+    return { tasks, complaints, shopping, recurring, people, phonebook, requests };
+  },
+  isSeeded: () => {
+    const row = db.prepare("SELECT COUNT(*) AS n FROM tasks").get();
+    return row.n > 0;
+  },
+});
 
 /* -------------------------------- writes ------------------------------- */
 
@@ -294,7 +331,7 @@ const upsertTask = () =>
  * board write is both simpler and safer than diffing every field client-side:
  * a half-applied drag can never be stored.
  */
-export function replaceBoard({ tasks = [], complaints = [], shopping = [], recurring = [], people = null, phonebook = null, requests = null }) {
+function replaceBoardSqlite({ tasks = [], complaints = [], shopping = [], recurring = [], people = null, phonebook = null, requests = null }) {
   const writeTasks = upsertTask();
   const writeComplaint = db.prepare(`
     INSERT INTO complaints (id,owner,apt,type,age,status,note,updated_at)
@@ -521,9 +558,9 @@ export function replaceBoard({ tasks = [], complaints = [], shopping = [], recur
     throw error;
   }
 
-  return readAll();
+  return sqlite().readAll();
 }
 
-export function closeDb() {
+function closeDbSqlite() {
   db.close();
 }

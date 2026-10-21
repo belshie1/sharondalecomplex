@@ -106,6 +106,27 @@ export async function resetBoard(page, { reload = true } = {}) {
       null,
       { timeout: 20000 }
     );
+    // The unlock prompt is offered a moment after boot. Suites run against a
+    // board with no access code, so it only ever gets in the way, but it must be
+    // dismissed as its own step: doing it inside the wait above can run before
+    // the prompt has opened, and then its overlay swallows every later click.
+    await page
+      .locator("#tokenModal.open")
+      .waitFor({ state: "visible", timeout: 5000 })
+      .catch(() => { /* a board with no code does not prompt at all */ });
+    await page.evaluate(() => {
+      const modal = document.getElementById("tokenModal");
+      if (modal && modal.classList.contains("open")) {
+        document.getElementById("cancelToken").click();
+      }
+      // Every suite starts on the calendar, so one can never inherit the tab
+      // another left behind. dispatchEvent is the path the suites use too.
+      document.querySelector('#mainNav .nav-item[data-view="tasks"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await page
+      .locator("#tokenModal.open")
+      .waitFor({ state: "detached", timeout: 5000 })
+      .catch(() => {});
     await page.waitForTimeout(300);
   }
 }

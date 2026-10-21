@@ -666,7 +666,10 @@
         card.classList.remove("dragging");
       });
       card.addEventListener("click", function (e) {
-        if (dragMoved || e.target.closest(".task-delete") || e.target.closest(".task-edit")) return;
+        // The whole actions row is dead space: a click on its padding between the
+        // buttons used to fall through to the card, toggle the task and re-render
+        // the board, destroying the very button the caretaker was aiming for.
+        if (dragMoved || e.target.closest(".t-actions")) return;
         const t = findTask(card.dataset.id);
         if (!t) return;
         t.done = !t.done;
@@ -675,7 +678,7 @@
         renderAll();
       });
       card.addEventListener("keydown", function (e) {
-        if (e.target.closest(".task-delete") || e.target.closest(".task-edit")) return;
+        if (e.target.closest(".t-actions")) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           card.click();
