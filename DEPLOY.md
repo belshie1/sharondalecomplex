@@ -244,10 +244,25 @@ two agree, so this repo enforces it:
 1. On the backend set `SHARONDALE_ALLOWED_ORIGINS=https://belshie1.github.io`,
    or every save from the page is refused by the browser.
 2. In the repo set the action variable `SHARONDALE_API` to the backend's API
-   root, e.g. `https://sharondale.your-tailnet.ts.net/api`, then run
+   root, e.g. `https://sharondale-complex.vercel.app/api`, then run
    **Publish dashboard to Pages**. The workflow injects that address into the
    page, publishes it, and immediately runs `verify-deploy.mjs` against the
    result - a green run means the page and the backend are talking.
+3. Check **Settings -> Pages -> Source** is **GitHub Actions**. If it says
+   "Deploy from a branch", Pages serves whatever is on that branch and every
+   publish run is ignored - which is what left the live site showing a 13 October
+   build with the old sample board long after the fix was on `main`.
+
+`verify-deploy.mjs` accepts either the site URL or the API root, because the two
+callers pass different things (`deploy-vercel.yml` passes the site,
+publish-dashboard.yml passes `SHARONDALE_API`). Before that it appended `/api`
+unconditionally and asked the API root for `/api/api/health`, so **every**
+publish run failed regardless of the site's health - the page silently stayed at
+whatever build it had. Reproduce with:
+
+```
+BASE_URL=https://<project>.vercel.app/api node tests/verify-deploy.mjs
+```
 
 Without `SHARONDALE_API` the workflow fails instead of publishing. A page alone
 would show an empty board labelled **No backend - nothing saved**, which is how
