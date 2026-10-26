@@ -25,6 +25,10 @@ on:
 
 permissions:
   contents: read
+  # Needed to write the SHARONDALE_URL repository variable below, which the
+  # Verify deployment workflow reads. Without it that variable stayed unset and
+  # the deploy check silently pointed at nothing.
+  actions: write
 
 concurrency:
   group: vercel-production
@@ -67,6 +71,24 @@ jobs:
           fi
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Deployed to $URL"
+
+      # The header of this file has always promised that the first run sets
+      # SHARONDALE_URL; until now nothing did, so Verify deployment read an empty
+      # (or stale) value and failed against a URL that does not exist. Writing it
+      # here keeps the two workflows pointed at the same deployment.
+      # Requires actions: write above and GH_TOKEN for the gh CLI.
+      - name: Remember the deployment URL for the verify workflow
+        if: steps.cfg.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "No deployment URL to record - skipping."; exit 0
+          fi
+          gh variable set SHARONDALE_URL --body "$DEPLOY_URL" \
+            && echo "SHARONDALE_URL is now $DEPLOY_URL" \
+            || echo "Could not set SHARONDALE_URL; set it by hand in Settings -> Variables."
 
       # A deployment that answers the page but 404s on /api is exactly the
       # failure this repo is built to catch, so the check runs on the real URL.

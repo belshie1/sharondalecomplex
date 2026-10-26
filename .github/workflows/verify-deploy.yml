@@ -28,15 +28,32 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
+      # The value reaches the shell through env:, never interpolated into the
+      # script. Inlined, an unset variable expands to the literal text
+      # "${{ vars.SHARONDALE_URL }}", which is not empty - so the old -z test
+      # said "configured" and the job then verified a URL that does not exist.
+      # That is why this workflow was red on every push. A value that is not an
+      # http(s) URL is treated the same as unset: skip, do not fail.
       - name: Check whether a deployment URL is configured
         id: cfg
+        env:
+          TARGET: ${{ vars.SHARONDALE_URL }}
         run: |
-          if [ -z "${{ vars.SHARONDALE_URL }}" ]; then
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "SHARONDALE_URL repository variable is not set - skipping."
-          else
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          fi
+          case "$TARGET" in
+            https://*|http://*)
+              echo "configured=true" >> "$GITHUB_OUTPUT"
+              echo "Will verify $TARGET"
+              ;;
+            "")
+              echo "configured=false" >> "$GITHUB_OUTPUT"
+              echo "SHARONDALE_URL repository variable is not set - skipping."
+              ;;
+            *)
+              echo "configured=false" >> "$GITHUB_OUTPUT"
+              echo "SHARONDALE_URL is not a URL ('$TARGET') - skipping."
+              echo "Set it in Settings -> Secrets and variables -> Actions -> Variables."
+              ;;
+          esac
 
       - name: Checkout
         if: steps.cfg.outputs.configured == 'true'

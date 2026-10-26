@@ -32,6 +32,15 @@ const fail = (msg) => {
   process.exit(1);
 };
 
+// An unset GitHub Actions variable can arrive here as the literal placeholder
+// rather than an empty string. Fetching it produced "could not reach https://${{..."
+// and made the deploy check look broken when the real problem was configuration.
+if (given.includes("${") || !/^https?:\/\/[^\s]+$/i.test(given)) {
+  console.error(`BASE_URL is not a usable URL (got: ${given})`);
+  console.error("Set SHARONDALE_URL to the site address, e.g. https://your-app.vercel.app");
+  process.exit(2);
+}
+
 async function getJson(path) {
   let res;
   try {
