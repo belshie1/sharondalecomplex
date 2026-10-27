@@ -253,6 +253,35 @@ async function rest(path, { method = "GET", body, prefer } = {}) {
   }
 }
 
+// PostgREST has no arbitrary-SQL endpoint, but Supabase exposes every public
+// function over /rest/v1/rpc. server/supabase-schema.sql declares
+// sharondale_save_board, which replaces the row's document in one statement.
+// Returns false when the function is not installed, so the caller can fall back
+// instead of failing every save.
+async function saveViaSql(board) {
+  let res;
+  try {
+    res = await fetch(URL_ + "/rest/v1/rpc/sharondale_save_board", {
+      method: "POST",
+      headers: {
+        apikey: KEY,
+        Authorization: "Bearer " + KEY,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ board_id: BOARD_ID, payload: board }),
+    });
+  } catch {
+    return false;
+  }
+  if (res.ok) return true;
+  const text = await res.text();
+  // PGRST202 / 42883 / "Could not find the function" is the one benign case: an
+  // older project. Anything else is a real failure and must not be hidden.
+  if (/PGRST202|42883|Could not find the function/i.test(text)) return false;
+  throw restError(text || "HTTP " + res.status, "POST rpc/sharondale_save_board");
+}
+
 const EMPTY = { tasks: [], complaints: [], shopping: [], recurring: [], people: [], phonebook: [], requests: [] };
 
 const shape = (board) => ({
@@ -306,9 +335,21 @@ export async function isSeeded() {
 
 // A partial write (people/phonebook/requests omitted) must leave those lists
 // alone, exactly like db.mjs. One UPDATE of the whole document keeps it atomic:
-// readers only ever see the old board or the new one. On the HTTPS path that is
-// a PATCH with merge-duplicates, which is the same one-statement promise; the
-// follow-up GET proves the row was really written before the caller is told
+// readers only ever see the old board or the new one.
+//
+// On the HTTPS path that has to be ONE statement, because two PATCHes would let
+// a crash land a half-applied board. PostgREST also merges a jsonb object key by
+// key rather than replacing it: sending {board: {tasks: [...]}} over PATCH left
+// every other list (complaints, shopping, ...) as it was, so a save from one
+// screen wiped what another screen had just written.
+//
+// So the whole new document is built here - including the lists the caller left
+// out, read from the current row - and written through the sharondale_save_board
+// function from supabase-schema.sql: one statement, the document replaced as a
+// unit, exactly like the SQLite and TCP paths. A project that has not run the
+// schema yet gets a one-statement PATCH fallback, which the Data API does treat
+// as a document replace (a jsonb key the object does not carry is removed).
+// The follow-up GET proves the row was really written before the caller is told
 // "saved", so a silent PostgREST no-op cannot show up as data loss later.
 export async function replaceBoard({ tasks = [], complaints = [], shopping = [], recurring = [], people = null, phonebook = null, requests = null }) {
   const current = await readAll();
@@ -322,18 +363,18 @@ export async function replaceBoard({ tasks = [], complaints = [], shopping = [],
     requests: requests === null ? current.requests : requests,
   };
   if (TRANSPORT === "rest") {
-    const rows = await rest("?id=eq." + BOARD_ID + "&select=id", {
-      method: "PATCH",
-      body: { board: next, updated_at: new Date().toISOString() },
-      prefer: "return=representation",
-    });
-    if (!rows.length) {
-      await rest("", {
-        method: "POST",
-        body: { id: BOARD_ID, board: next },
-        prefer: "resolution=merge-duplicates,return=minimal",
+    const sent = await saveViaSql(next);
+    if (!sent) {
+      await rest("?id=eq." + BOARD_ID, {
+        method: "PATCH",
+        // `board` alone: no sibling key may sit next to the jsonb value, or the
+        // Data API treats the whole object as a partial update and deletes the
+        // rest of the board.
+        body: { board: next },
       });
     }
+    const check = await rest("?id=eq." + BOARD_ID + "&select=board");
+    if (!check.length) throw new Error("Saving to Supabase reported success but the board row could not be read back.");
     return next;
   }
   const { rows } = await query(

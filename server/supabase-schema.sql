@@ -26,3 +26,29 @@ alter table public.sharondale_board enable row level security;
 insert into public.sharondale_board (id, board)
 values ('sharondale', '{"tasks":[],"complaints":[],"shopping":[],"recurring":[],"people":[],"phonebook":[],"requests":[]}'::jsonb)
 on conflict (id) do nothing;
+
+-- Saving the board over the HTTPS Data API.
+--
+-- PostgREST merges a jsonb object key by key, so a PATCH that carried only the
+-- tasks list deleted nothing else but also replaced nothing else - and a PATCH
+-- that carried the whole document next to updated_at was read as a partial
+-- update and removed every key the payload did not mention. Either way one
+-- screen's save silently discarded another screen's data. The backend calls this
+-- function instead: one statement, whatever this project's PostgREST version
+-- does, and the whole document replaced as a unit.
+create or replace function public.sharondale_save_board(board_id text, payload jsonb)
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.sharondale_board (id, board, updated_at)
+  values (board_id, payload, now())
+  on conflict (id) do update
+    set board = excluded.board,
+        updated_at = excluded.updated_at;
+$$;
+
+-- Only the server (which holds the secret key and bypasses RLS) calls it; a
+-- browser holding an anon key must not be able to write the board.
+revoke all on function public.sharondale_save_board(text, jsonb) from public, anon, authenticated;

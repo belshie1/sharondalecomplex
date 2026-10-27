@@ -32,6 +32,7 @@ const SUITES = [
   "qa-complaint-add.mjs",
   "qa-complaint-delete.mjs",
   "qa-backend.mjs",
+  "qa-board-integrity.mjs",
   "qa-static-host.mjs",
 ];
 

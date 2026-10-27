@@ -49,7 +49,18 @@ export function loadEnvFiles(files = [".env.local", ".env"]) {
   // (`SHARONDALE_TOKEN=""` in the test runner). Neither may be overwritten by a
   // file. An empty value IN A FILE means "not configured" - `.env.local` ships
   // `SUPABASE_DB_URL=` - so it never replaces a real value from `.env`.
-  const settled = new Set(Object.keys(process.env));
+  //
+  // An empty value is a deliberate switch-off, so it is kept: a script that
+  // clears SUPABASE_* (the QA suites, which reset the board constantly) must not
+  // have `.env.local` put the live project back. On Windows the variable cannot
+  // be empty at all - only absent, or the two-character string "" - so that
+  // spelling is removed here and the file fills it in, which is what a person
+  // setting `$env:SUPABASE_URL=''` in PowerShell means.
+  const settled = new Set();
+  for (const key of Object.keys(process.env)) {
+    if (process.platform === "win32" && process.env[key] === "") continue;
+    settled.add(key);
+  }
   for (const name of files) {
     const file = path.join(root, name);
     if (!fs.existsSync(file)) continue;

@@ -102,6 +102,14 @@ What goes where:
    reports it under `storage`. Pin it with `SUPABASE_TRANSPORT=rest` or `tcp` if
    you do not want the one-off probe.
 
+   **Run the whole schema file, not just its `create table`.** It also declares
+   `sharondale_save_board`, and that function is what saves the board on this
+   path. PostgREST merges a `jsonb` object key by key, so a write that only
+   carried some of the board used to leave the other lists untouched, and every
+   save replaced only part of the document. The server now sends the whole
+   document through that one function; if the function is missing it falls back
+   to a partial-update `PATCH`, which is correct but less safe under a crash.
+
 ### 2. Deploy with Vercel from GitHub
 
 1. Create a token at <https://vercel.com/account/tokens>.
@@ -133,6 +141,10 @@ What goes where:
 Set the action variable `SHARONDALE_API` to `https://<project>.vercel.app/api`
 and run **Publish dashboard to Pages**. Both origins are then in use: the page on
 Pages and on Vercel, the API on Vercel, the data in Supabase.
+
+Re-run `server/supabase-schema.sql` after pulling a change that adds to it - it
+is idempotent (`if not exists` / `or replace`), and the saving function is where
+the HTTPS Data API path keeps its data intact.
 
 The board is now a single row in `sharondale_board`; there is no volume to
 attach and nothing to lose on redeploy. `/api/health` reports
