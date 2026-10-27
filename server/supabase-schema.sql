@@ -51,4 +51,12 @@ $$;
 
 -- Only the server (which holds the secret key and bypasses RLS) calls it; a
 -- browser holding an anon key must not be able to write the board.
-revoke all on function public.sharondale_save_board(text, jsonb) from public, anon, authenticated;
+--
+-- `public` also needs EXECUTE taken away: in Postgres every new function is
+-- granted to PUBLIC by default, and `anon` inherits through it, so revoking from
+-- anon alone would leave the browser path open. Supabase grants each role
+-- explicitly, so do both. Without Postgres reachable, the server cannot run this
+-- and uses the PATCH fallback instead; this file is how the function gets made.
+revoke all on function public.sharondale_save_board(text, jsonb) from public;
+revoke all on function public.sharondale_save_board(text, jsonb) from anon, authenticated;
+grant execute on function public.sharondale_save_board(text, jsonb) to service_role;
