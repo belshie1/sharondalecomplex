@@ -149,6 +149,7 @@ const server = spawn("node", ["server/index.mjs"], {
     // Writes are protected in production tests; locally the suites write
     // directly, exactly as a visitor who has entered the code would.
     SHARONDALE_TOKEN: OFF_SENTINEL,
+    SHARONDALE_LOGIN: "off",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });

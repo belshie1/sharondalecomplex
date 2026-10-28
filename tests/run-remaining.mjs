@@ -122,6 +122,7 @@ const server = spawn("node", ["server/index.mjs"], {
     SUPABASE_DB_URL: "",
     // Writes are open locally, exactly as for a visitor who entered the code.
     SHARONDALE_TOKEN: "",
+    SHARONDALE_LOGIN: "off",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });

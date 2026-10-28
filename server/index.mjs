@@ -22,6 +22,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { storage, initStorage, pingStorage, storageDescription, closeStorage, usingSupabaseStorage } from "./db.mjs";
 import { seedIfEmpty } from "./seed.mjs";
+import { login, lockedOut, setCode, listCodes, sessionFromRequest } from "./access.mjs";
+
+// When set, board reads and writes need a signed-in session (or the write
+// token). Off by default so existing clients and tests keep working.
+const REQUIRE_LOGIN = process.env.SHARONDALE_REQUIRE_LOGIN === "1";
+// Automated browser tests set this to skip the sign-in screen. Never set it in
+// production.
+const LOGIN_OFF = process.env.SHARONDALE_LOGIN === "off";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -94,8 +102,8 @@ function applyCors(req, res) {
   res.setHeader("Access-Control-Allow-Origin", origin);
   // The answer differs per origin, so a shared cache must not reuse it.
   res.setHeader("Vary", "Origin");
-  res.setHeader("Access-Control-Allow-Methods", "GET, PUT, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Sharondale-Token");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Sharondale-Token, Authorization");
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
@@ -245,6 +253,46 @@ async function handleApi(req, res, pathname) {
       // so explicitly, because there is no path to inspect.
       database: usingSupabaseStorage() ? "supabase: " + storageDescription() : DB_FILE === ":memory:" ? ":memory: (not persisted)" : DB_FILE,
     });
+  }
+
+  if (pathname === "/api/login" && req.method === "GET") {
+    return sendJson(res, 200, { gate: !LOGIN_OFF });
+  }
+
+  if (pathname === "/api/login" && req.method === "POST") {
+    const key = req.socket.remoteAddress || "unknown";
+    if (lockedOut(key)) return sendJson(res, 429, { error: "Too many wrong codes. Try again in 15 minutes." });
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      return sendJson(res, 400, { error: "Invalid JSON." });
+    }
+    const result = await login(body && body.code, key);
+    if (!result) return sendJson(res, 401, { error: "Incorrect code." });
+    return sendJson(res, 200, result);
+  }
+
+  if (pathname === "/api/codes") {
+    const session = sessionFromRequest(req);
+    if (!session || !session.admin) return sendJson(res, 403, { error: "Only the admin can manage codes." });
+    if (req.method === "GET") return sendJson(res, 200, { codes: await listCodes() });
+    if (req.method === "PUT") {
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return sendJson(res, 400, { error: "Invalid JSON." });
+      }
+      const problem = await setCode(body && body.name, body && body.code);
+      if (problem) return sendJson(res, 400, { error: problem });
+      return sendJson(res, 200, { ok: true, codes: await listCodes() });
+    }
+  }
+
+  if (REQUIRE_LOGIN && pathname.startsWith("/api/") && pathname !== "/api/health" && pathname !== "/api/events") {
+    const tokenOk = WRITE_TOKEN && req.headers["x-sharondale-token"] === WRITE_TOKEN;
+    if (!tokenOk && !sessionFromRequest(req)) return sendJson(res, 401, { error: "Sign in with your code first." });
   }
 
   if (pathname === "/api/board" && req.method === "GET") {

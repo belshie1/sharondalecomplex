@@ -391,6 +391,32 @@ export async function replaceBoard({ tasks = [], complaints = [], shopping = [],
   return next;
 }
 
+// Access codes live in their own row of the same table so they never travel with
+// the board that every client can read.
+const ACCESS_ID = "sharondale-access";
+
+export async function readAccess() {
+  if (TRANSPORT === "rest") {
+    const rows = await rest("?id=eq." + ACCESS_ID + "&select=board");
+    return rows.length && Array.isArray(rows[0].board && rows[0].board.codes) ? rows[0].board.codes : [];
+  }
+  const { rows } = await query(`SELECT board FROM sharondale_board WHERE id = $1`, [ACCESS_ID]);
+  return rows.length && rows[0].board && Array.isArray(rows[0].board.codes) ? rows[0].board.codes : [];
+}
+
+export async function writeAccess(codes) {
+  const doc = { codes };
+  if (TRANSPORT === "rest") {
+    await rest("", { method: "POST", body: { id: ACCESS_ID, board: doc }, prefer: "resolution=merge-duplicates,return=minimal" });
+    return;
+  }
+  await query(
+    `INSERT INTO sharondale_board (id, board) VALUES ($1, $2)
+     ON CONFLICT (id) DO UPDATE SET board = EXCLUDED.board, updated_at = now()`,
+    [ACCESS_ID, doc]
+  );
+}
+
 // Called by /api/health so a deployment check can prove the database answers.
 export async function ping() {
   const started = Date.now();

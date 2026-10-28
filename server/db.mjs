@@ -129,6 +129,13 @@ if (!useSupabase) {
       updated_at TEXT NOT NULL
     );
 
+    -- Sign-in codes, one per person. Kept out of the people table because that
+    -- list is served to every client.
+    CREATE TABLE IF NOT EXISTS access_codes (
+      name TEXT PRIMARY KEY,
+      code TEXT NOT NULL UNIQUE
+    );
+
     -- Task requests are work that has been reported but not yet accepted onto the
     -- weekly board: a request is logged here first, and only becomes a task when
     -- the caretaker moves it across. They are kept apart from the tasks table on
@@ -180,6 +187,19 @@ const backend = useSupabase ? await import("./supabase-db.mjs") : {
   isSeeded: () => sqlite().isSeeded(),
   closeDb: closeDbSqlite,
   initStorage: async () => {},
+  readAccess: async () => db.prepare("SELECT name, code FROM access_codes ORDER BY name").all().map((r) => ({ name: r.name, code: r.code })),
+  writeAccess: async (codes) => {
+    db.exec("BEGIN");
+    try {
+      db.exec("DELETE FROM access_codes");
+      const ins = db.prepare("INSERT INTO access_codes (name, code) VALUES (?, ?)");
+      for (const c of codes) ins.run(c.name, c.code);
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  },
   ping: async () => 0,
   storageDescription: () => `SQLite file (${dbFile})`,
 };
