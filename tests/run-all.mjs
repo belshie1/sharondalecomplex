@@ -15,6 +15,8 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { OFF_SENTINEL } from "../server/env.mjs";
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const PORT = Number(process.env.PORT) || 3123;
@@ -128,20 +130,25 @@ console.log(`Starting backend on port ${PORT}...`);
 // The suites reset the board constantly, so they must never run against the
 // cloud. .env.local now names a real Supabase project, and SHARONDALE_DB alone
 // no longer implies SQLite, so Supabase is switched off explicitly here.
+//
+// An empty value is how these are switched off, but Windows cannot pass an
+// empty variable to a child process, so OFF_SENTINEL is used instead: the
+// server's env loader reads it as "deliberately empty" and .env.local is not
+// allowed to put the live project or its write token back.
 const server = spawn("node", ["server/index.mjs"], {
   cwd: root,
   env: {
     ...process.env,
     PORT: String(PORT),
     SHARONDALE_DB: process.env.SHARONDALE_DB || ":memory:",
-    SUPABASE_URL: "",
-    SUPABASE_SECRET_KEY: "",
-    SUPABASE_SERVICE_ROLE_KEY: "",
-    SUPABASE_KEY: "",
-    SUPABASE_DB_URL: "",
+    SUPABASE_URL: OFF_SENTINEL,
+    SUPABASE_SECRET_KEY: OFF_SENTINEL,
+    SUPABASE_SERVICE_ROLE_KEY: OFF_SENTINEL,
+    SUPABASE_KEY: OFF_SENTINEL,
+    SUPABASE_DB_URL: OFF_SENTINEL,
     // Writes are protected in production tests; locally the suites write
     // directly, exactly as a visitor who has entered the code would.
-    SHARONDALE_TOKEN: "",
+    SHARONDALE_TOKEN: OFF_SENTINEL,
   },
   stdio: ["ignore", "pipe", "pipe"],
 });

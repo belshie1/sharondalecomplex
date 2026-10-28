@@ -21,6 +21,9 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 
+/** Value a script passes to say "this key is deliberately off", even on Windows. */
+export const OFF_SENTINEL = "__off__";
+
 export function parseEnv(text) {
   const out = {};
   for (const raw of String(text).split(/\r?\n/)) {
@@ -44,7 +47,7 @@ export function parseEnv(text) {
 /** Reads the files in order, keeping what is already set in the environment. */
 export function loadEnvFiles(files = [".env.local", ".env"]) {
   const loaded = [];
-  // A key the environment already mentions is settled: either it carries a
+  // A key the environment already mentions is settled: it either carries a
   // value, or it was deliberately emptied to switch something off
   // (`SHARONDALE_TOKEN=""` in the test runner). Neither may be overwritten by a
   // file. An empty value IN A FILE means "not configured" - `.env.local` ships
@@ -52,13 +55,19 @@ export function loadEnvFiles(files = [".env.local", ".env"]) {
   //
   // An empty value is a deliberate switch-off, so it is kept: a script that
   // clears SUPABASE_* (the QA suites, which reset the board constantly) must not
-  // have `.env.local` put the live project back. On Windows the variable cannot
-  // be empty at all - only absent, or the two-character string "" - so that
-  // spelling is removed here and the file fills it in, which is what a person
-  // setting `$env:SUPABASE_URL=''` in PowerShell means.
+  // have `.env.local` put the live project back. On Windows a variable cannot
+  // hold an empty string - the shell turns `$env:X=''` into "absent", and Node
+  // drops it from the child's environment - so a script that means "off" passes
+  // a sentinel instead: OFF_SENTINEL marks a key as settled-and-empty.
   const settled = new Set();
+  const offKeys = new Set();
   for (const key of Object.keys(process.env)) {
     if (process.platform === "win32" && process.env[key] === "") continue;
+    if (process.env[key] === OFF_SENTINEL) {
+      offKeys.add(key);
+      settled.add(key);
+      continue;
+    }
     settled.add(key);
   }
   for (const name of files) {
@@ -78,6 +87,9 @@ export function loadEnvFiles(files = [".env.local", ".env"]) {
     }
     loaded.push(name);
   }
+  // Hand the caller the switch-off it asked for: "" everywhere, which is what
+  // every reader of process.env already treats as not configured.
+  for (const key of offKeys) process.env[key] = "";
   return loaded;
 }
 

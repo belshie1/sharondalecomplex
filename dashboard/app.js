@@ -82,6 +82,12 @@
   // Current signed-in caretaker, from the "working as" choice in the sidebar.
   let currentUser = "Marco Conti";
 
+  // The boxed sample below is a placeholder for the moment before the server
+  // answers. Once the server has answered, the lists hold what it holds, so boot
+  // must not mistake "the server is empty" for "nothing has been loaded yet" and
+  // push this sample over a real (possibly deliberately cleared) board.
+  let boardLoaded = false;
+
   const tasks = [
     { id: uid++, title: "Pool filter back-flush", location: "Clubhouse - Pool deck", day: dayDate.mon, priority: "medium", assignee: "Elena Ruiz", done: true, photo: null, moved: null },
     { id: uid++, title: "Replace hallway bulb", location: "Block A - Floor 3", day: dayDate.mon, priority: "low", assignee: "Marco Conti", done: true, photo: null, moved: null },
@@ -267,6 +273,22 @@
     } catch (error) {
       return null;
     }
+  }
+
+  // Hoisted on purpose: the board can be pushed to the server during boot, which
+  // runs before the modal wiring further down this file, and a refused write at
+  // that point still has to offer the prompt instead of throwing.
+  function offerUnlock() {
+    if (unlockOffered) return;
+    unlockOffered = true;
+    const modal = document.getElementById("tokenModal");
+    if (!modal) return;
+    const error = document.getElementById("tokenError");
+    const input = document.getElementById("tokenInput");
+    if (error) error.textContent = "";
+    if (input) input.value = "";
+    modal.classList.add("open");
+    if (input) input.focus();
   }
 
   function api(path, options) {
@@ -520,11 +542,6 @@
   // Only interrupt the caretaker once: after the first refusal the header chip
   // carries the state, and clicking it reopens the prompt.
   let unlockOffered = false;
-  function offerUnlock() {
-    if (unlockOffered) return;
-    unlockOffered = true;
-    openTokenModal();
-  }
 
   async function verifyAndStoreToken(candidate) {
     const previous = writeToken;
@@ -2207,6 +2224,7 @@
         return;
       }
       if (board) {
+        boardLoaded = true;
         tasks.length = 0;
         board.tasks.forEach(function (t) { tasks.push(t); });
         complaints.length = 0;
@@ -2241,7 +2259,10 @@
       renderPeople();
       renderPhonebook();
       // Seed the server on a first ever run so a new deployment is not empty.
-      if (serverReachable && tasks.length === 0 && complaints.length === 0 && shopping.length === 0) {
+      // Only ever with the sample still in place: an empty board that came from
+      // the server is the caretaker's board, not a new deployment.
+      if (serverReachable && !boardLoaded &&
+          tasks.length === 0 && complaints.length === 0 && shopping.length === 0) {
         saveBoardData();
       }
       setSaveState(serverReachable ? "saved" : "offline");
@@ -2297,6 +2318,7 @@
           .then(function (res) { return res.ok ? res.json() : null; })
           .then(function (board) {
             if (!board) return;
+            boardLoaded = true;
             tasks.length = 0;
             (board.tasks || []).filter(isValidTask).map(normalizeTask)
               .forEach(function (t) { tasks.push(t); });

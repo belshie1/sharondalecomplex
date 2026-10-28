@@ -32,6 +32,23 @@ export default async function run(page) {
   await page.waitForTimeout(600);
   results.promptAppeared = await page.locator("#tokenModal").evaluate(el => el.classList.contains("open"));
 
+  // The prompt is modal: it must be dismissible with "Just browse" so a
+  // read-only visitor is never stuck behind it, and the board behind it stays
+  // on screen.
+  results.boardStillShownUnderPrompt = (await page.locator("#boardBody .task-card").count()) > 0;
+  await page.locator("#cancelToken").click();
+  await page.waitForTimeout(300);
+  results.justBrowseDismisses = await page.locator("#tokenModal").evaluate(el => !el.classList.contains("open"));
+  await page.locator('.nav-item[data-view="shopping"]').click();
+  await page.waitForTimeout(400);
+  results.canNavigateAfterDismissing = await page
+    .locator("#view-shopping")
+    .evaluate(el => !el.hidden);
+  // The chip carries the state from here on, and clicking it reopens the prompt.
+  await page.locator("#saveState").click();
+  await page.waitForTimeout(300);
+  results.chipReopensPrompt = await page.locator("#tokenModal").evaluate(el => el.classList.contains("open"));
+
   // A wrong code is refused and the prompt stays open.
   await page.evaluate(() => {
     document.getElementById("tokenInput").value = "definitely-wrong";
@@ -40,6 +57,14 @@ export default async function run(page) {
   await page.waitForTimeout(1500);
   results.wrongCodeRefused = (await page.locator("#tokenError").innerText()).includes("not accepted");
   results.stillLockedAfterWrongCode = (await page.locator("#saveState").innerText()).includes("Locked");
+  results.promptStaysOpenAfterWrongCode = await page.locator("#tokenModal").evaluate(el => el.classList.contains("open"));
+
+  // Back to the task composer for the write check below.
+  await page.locator("#cancelToken").click();
+  await page.locator('.nav-item[data-view="tasks"]').click();
+  await page.waitForTimeout(300);
+  await page.locator("#saveState").click();
+  await page.waitForTimeout(300);
 
   // The right code unlocks and the chip flips to Saved.
   await page.evaluate(() => {
