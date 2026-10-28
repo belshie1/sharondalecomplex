@@ -1,5 +1,9 @@
 # Publishes the dashboard (the page only) to GitHub Pages.
 #
+# NOT the deployment path any more: it is manual-only (see `on:` below) because
+# Vercel serves the page and the API together from one project. Kept for the
+# case where the Pages address is wanted back.
+#
 # The backend cannot run on Pages, so this workflow is only useful together with
 # the *other* half of the deployment: a backend reachable at a public HTTPS
 # address. Once that exists, the page has to be told where it is, which is what
@@ -20,12 +24,14 @@
 name: Publish dashboard to Pages
 
 on:
+  # Manual only. Vercel now serves the whole app - the page and the API - from
+  # one project at https://sharondale-complex.vercel.app, so publishing a second
+  # copy here would split one board across two hosts. Running on every push also
+  # meant a red workflow on each commit for a deployment nobody was using, and
+  # GitHub Pages has never been enabled for this repo. Run it by hand if you ever
+  # do want the Pages copy back (it needs SHARONDALE_API, and Pages switched to
+  # GitHub Actions as its source).
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "dashboard/**"
-      - ".github/workflows/publish-dashboard.yml"
 
 permissions:
   contents: read
