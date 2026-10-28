@@ -8,6 +8,12 @@
 
   try { session = JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (e) { session = null; }
 
+  // A person works as themselves: pin the identity before app.js reads it.
+  var locked = !!(session && !session.admin);
+  if (locked) {
+    try { localStorage.setItem("sharondaleCurrentUser", session.name); } catch (e) { /* optional */ }
+  }
+
   // Every API call carries the session, so app.js needs no changes.
   var nativeFetch = window.fetch.bind(window);
   window.fetch = function (input, init) {
@@ -44,6 +50,7 @@
       "#loginError{color:var(--coral,#B95C4D);min-height:20px;font-size:13px;margin-bottom:8px}" +
       "#signOutBtn{position:fixed;top:10px;right:14px;z-index:900}" +
       ".code-set{display:inline-flex;gap:4px;align-items:center;margin-right:8px}" +
+      (locked ? ".act-assign-me{display:none!important}" : "") +
       ".code-set input{width:72px;text-align:center;letter-spacing:.2em;padding:4px;border:1px solid var(--line);border-radius:6px}";
     document.head.appendChild(s);
   }
@@ -160,6 +167,13 @@
     var out = el("button", { type: "button", id: "signOutBtn", class: "btn btn-ghost btn-sm" }, "Sign out (" + session.name + ")");
     out.addEventListener("click", signOut);
     document.body.appendChild(out);
+    if (locked) {
+      var select = document.getElementById("currentUserSelect");
+      if (select) {
+        select.disabled = true;
+        select.title = "You are signed in as " + session.name;
+      }
+    }
     if (session.admin) setupAdmin();
   });
 })();
