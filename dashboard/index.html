@@ -58,6 +58,10 @@
         <svg class="icon" viewBox="0 0 24 24"><path d="M5 3.5h14v17H5z"/><path d="M9 8.5h6M9 12h6M9 15.5h3.5"/></svg>
         Weekly report
       </button>
+      <button class="nav-item" id="monthlyReportNav">
+        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M7.5 2.5v4M16.5 2.5v4M3 9h18M7.5 12.5h2M12 12.5h2M16.5 12.5h.01M7.5 16h2M12 16h2"/></svg>
+        Monthly report
+      </button>
     </nav>
 
     <div class="sidebar-foot">
@@ -104,6 +108,10 @@
           <button class="btn btn-ghost" id="openReportFromTasks">
             <svg class="icon" viewBox="0 0 24 24"><path d="M5 3.5h14v17H5z"/><path d="M9 8.5h6M9 12h6M9 15.5h3.5"/></svg>
             Weekly report
+          </button>
+          <button class="btn btn-ghost" id="openMonthlyReportFromTasks">
+            <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M7.5 2.5v4M16.5 2.5v4M3 9h18M7.5 12.5h2M12 12.5h2M16.5 12.5h.01M7.5 16h2M12 16h2"/></svg>
+            Monthly report
           </button>
         </div>
       </div>
@@ -412,7 +420,7 @@
   <div class="modal">
     <div class="modal-head">
       <div>
-        <h2>Weekly report</h2>
+        <h2 id="reportTitle">Weekly report</h2>
         <div class="sub" id="reportRange">This week</div>
       </div>
       <button class="modal-close" id="closeReport" aria-label="Close">

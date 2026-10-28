@@ -40,6 +40,7 @@ export default async function run(page) {
   const origin = await page.evaluate(() => location.origin);
   const other = await page.context().browser().newContext();
   const otherPage = await other.newPage();
+  await other.addInitScript(() => { window.EventSource = undefined; });
   await otherPage.goto(origin + "/", { waitUntil: "domcontentloaded" });
   await otherPage.waitForTimeout(2000);
   out.secondDeviceSeesTask = await otherPage
@@ -48,6 +49,19 @@ export default async function run(page) {
   out.secondDeviceHasNoLocalStorage = await otherPage.evaluate(() =>
     localStorage.getItem("sharondaleBoardData") === null
   );
+  const pollMarker = marker("POLL SYNC");
+  await page.locator("#f-title").fill(pollMarker);
+  await page.locator("#f-location").fill("Block P");
+  await page.locator("#composer button[type=submit]").click();
+  await page.waitForTimeout(1000);
+  await otherPage.waitForFunction(
+    (title) => [...document.querySelectorAll(".task-card")].some((card) => card.innerText.includes(title)),
+    pollMarker,
+    { timeout: 15000 }
+  );
+  out.secondDeviceUpdatesWithoutEvents = await otherPage
+    .locator(".task-card", { hasText: pollMarker })
+    .count() === 1;
   await other.close();
 
   // 4. A shopping tick on this device is visible to the server too.

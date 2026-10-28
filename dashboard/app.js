@@ -183,6 +183,7 @@
   // not sitting in the page source for anyone to copy.
   const TOKEN_KEY = "sharondaleToken";
   let writeToken = "";
+  let localWriteRejected = false;
   function readStoredToken() {
     if (window.SHARONDALE_TOKEN) return window.SHARONDALE_TOKEN;
     try { return localStorage.getItem(TOKEN_KEY) || ""; } catch (e) { return ""; }
@@ -201,6 +202,7 @@
   let serverReachable = null; // null = unknown yet
   let pendingSync = false;    // local changes not yet confirmed by the server
   let syncTimer = null;
+  let localChangeVersion = 0;
   // True from the moment the API has been tried and found to be a static host -
   // a page served by GitHub Pages, S3 or any CDN. The board on screen is then the
   // sample from this file, not data, and must be labelled as such.
@@ -331,6 +333,7 @@
   // Push the whole board to the server. The dashboard treats the task list as a
   // unit, so a single whole-board write cannot half-apply a drag or a tick.
   async function saveBoardData() {
+    localChangeVersion++;
     const requestBody = JSON.stringify(boardPayload());
     const confirmedBoard = JSON.parse(requestBody);
     setSaveState("saving");
@@ -343,6 +346,7 @@
         // The server wants an access code. This is not a lost change and not a
         // network problem, so it gets its own state and the unlock prompt.
         needsToken = true;
+        localWriteRejected = true;
         serverReachable = true;
         pendingSync = false;
         setSaveState("locked");
@@ -354,6 +358,7 @@
         throw new Error(detail.error || ("HTTP " + res.status));
       }
       needsToken = false;
+      localWriteRejected = false;
       serverReachable = true;
       backendMissing = false;
       pendingSync = false;
@@ -595,6 +600,7 @@
       }
       storeToken(candidate);
       needsToken = false;
+      localWriteRejected = false;
       serverReachable = true;
       pendingSync = false;
       writeCache(confirmedBoard);
@@ -645,7 +651,10 @@
 
   // Persist meaningful interactions to the server. localStorage is updated
   // only after the server confirms the write.
-  function markSaving() { setSaveState("saving"); saveBoardData(); }
+  function markSaving() {
+    setSaveState("saving");
+    saveBoardData();
+  }
   function logActivity(text) {
     activityLog.unshift({ text: text, time: timeNow() });
     activityLog = activityLog.slice(0, 12);
@@ -1973,6 +1982,28 @@
       overdue: unfinished.filter(function (task) { return task.day && task.day < todayDate; })
     };
   }
+  function getMonthlyReportData() {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const monthStartDate = dateKey(monthStart);
+    const monthEndDate = dateKey(monthEnd);
+    const scheduled = tasks.filter(function (task) {
+      return task.day >= monthStartDate && task.day <= monthEndDate;
+    });
+    const completed = tasks.filter(function (task) {
+      const completedDate = task.completedOn || task.day;
+      return task.done && completedDate >= monthStartDate && completedDate <= monthEndDate;
+    });
+    const remaining = scheduled.filter(function (task) { return !task.done; });
+    return {
+      monthStart: monthStart,
+      monthEnd: monthEnd,
+      scheduled: scheduled,
+      completed: completed,
+      remaining: remaining,
+      overdue: remaining.filter(function (task) { return task.day < todayDate; })
+    };
+  }
   function reportTaskList(items, dateForCompletion) {
     if (!items.length) return '<p class="report-empty">No tasks in this section.</p>';
     return '<ul class="report-task-list">' + items.map(function (task) {
@@ -1984,6 +2015,15 @@
     }).join("") + '</ul>';
   }
   function openReport() {
+    reportPeriod = "week";
+    document.getElementById("reportTitle").textContent = "Weekly report";
+    document.querySelector("#reportModal .report-grid .report-stat.green .lbl").textContent = "Completed last week";
+    document.querySelector("#reportModal .report-grid .report-stat.amber .lbl").textContent = "This week's tasks";
+    document.querySelector("#reportModal .report-grid .report-stat.coral .lbl").textContent = "Unfinished tasks";
+    document.querySelector("#reportModal .report-list .r-row:nth-child(1) span").textContent = "This week's tasks logged";
+    document.querySelector("#reportModal .report-list .r-row:nth-child(2) span").textContent = "Overdue tasks";
+    document.querySelector("#reportModal .report-list .r-row:nth-child(3) span").textContent = "Tasks completed this week";
+    document.getElementById("reportRange").textContent = formatDateRange(weekDates[0], weekDates[6]);
     const data = getWeeklyReportData();
     document.getElementById("rCompleted").textContent = data.lastWeekCompleted.length;
     document.getElementById("rCarried").textContent = data.thisWeekTasks.length;
@@ -2005,10 +2045,44 @@
         '</span></h3>' + reportTaskList(data.unfinished, false) + '</section>';
     reportModal.classList.add("open");
   }
+  let reportPeriod = "week";
+  function openMonthlyReport() {
+    reportPeriod = "month";
+    const data = getMonthlyReportData();
+    const monthLabel = MONTHS[data.monthStart.getMonth()] + " " + data.monthStart.getFullYear();
+    document.getElementById("reportTitle").textContent = "Monthly report";
+    document.getElementById("reportRange").textContent = monthLabel;
+    document.querySelector("#reportModal .report-grid .report-stat.green .lbl").textContent = "Completed this month";
+    document.querySelector("#reportModal .report-grid .report-stat.amber .lbl").textContent = "Scheduled this month";
+    document.querySelector("#reportModal .report-grid .report-stat.coral .lbl").textContent = "Remaining this month";
+    document.querySelector("#reportModal .report-list .r-row:nth-child(1) span").textContent = "Tasks scheduled this month";
+    document.querySelector("#reportModal .report-list .r-row:nth-child(2) span").textContent = "Overdue remaining tasks";
+    document.querySelector("#reportModal .report-list .r-row:nth-child(3) span").textContent = "Tasks completed this month";
+    document.getElementById("rCompleted").textContent = data.completed.length;
+    document.getElementById("rCarried").textContent = data.scheduled.length;
+    document.getElementById("rOverdue").textContent = data.remaining.length;
+    document.getElementById("rTotal").textContent = data.scheduled.length;
+    document.getElementById("rOverdueCount").textContent = data.overdue.length;
+    document.getElementById("rCurrentCompleted").textContent = data.completed.length;
+    document.getElementById("rResolved").textContent = complaints.filter(function (c) { return c.status === "closed"; }).length;
+    document.getElementById("rOpenIssues").textContent = complaints.filter(function (c) { return c.status !== "closed"; }).length;
+    document.getElementById("reportTaskSections").innerHTML =
+      '<section class="report-task-section"><h3>Scheduled this month <span>' +
+        escapeHtml(formatDateRange(data.monthStart, data.monthEnd)) + '</span></h3>' +
+        reportTaskList(data.scheduled, false) + '</section>' +
+      '<section class="report-task-section"><h3>Completed this month <span>' + data.completed.length +
+        '</span></h3>' + reportTaskList(data.completed, true) +
+        '<p class="report-note">Older completed tasks without a recorded completion date are grouped by their scheduled date.</p></section>' +
+      '<section class="report-task-section"><h3>Remaining this month <span>' + data.remaining.length +
+        '</span></h3>' + reportTaskList(data.remaining, false) + '</section>';
+    reportModal.classList.add("open");
+  }
   function closeReport() { reportModal.classList.remove("open"); }
   document.getElementById("weeklyReportNav").addEventListener("click", openReport);
   document.getElementById("openReportFromTasks").addEventListener("click", openReport);
   document.getElementById("openReportFromComplaints").addEventListener("click", openReport);
+  document.getElementById("monthlyReportNav").addEventListener("click", openMonthlyReport);
+  document.getElementById("openMonthlyReportFromTasks").addEventListener("click", openMonthlyReport);
   document.getElementById("closeReport").addEventListener("click", closeReport);
   document.getElementById("closeReport2").addEventListener("click", closeReport);
   reportModal.addEventListener("click", function (e) { if (e.target === reportModal) closeReport(); });
@@ -2115,11 +2189,87 @@
     @media print { .stat, thead th { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
   `;
 
+  function openPrintableMonthlyReport() {
+    const data = getMonthlyReportData();
+    const rangeText = document.getElementById("reportRange").textContent;
+    const generated = new Date().toLocaleString([], {
+      day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
+    });
+    const printableTaskList = function (items, dateForCompletion) {
+      return reportTaskList(items, dateForCompletion)
+        .replace("report-task-list", "report-task-list printable-task-list")
+        .replace("report-empty", "empty");
+    };
+    const complaintRows = complaints.map(function (c) {
+      const label = c.status === "open" ? "Open" : c.status === "progress" ? "In progress" : "Resolved";
+      return '<tr><td>' + escapeHtml(c.owner) + '</td><td>' + escapeHtml(c.apt) + '</td>' +
+        '<td>' + escapeHtml(c.type) + '</td><td>' + escapeHtml(c.age) + '</td>' +
+        '<td><span class="status status-' + c.status + '">' + label + '</span></td>' +
+        '<td>' + escapeHtml(c.note || "-") + '</td></tr>';
+    }).join("");
+    const shoppingRows = shopping.length
+      ? shopping.map(function (item) {
+          return '<tr><td>' + escapeHtml(item.label) + '</td><td>x' + item.qty + '</td><td>' +
+            escapeHtml(item.addedBy || "-") + '</td></tr>';
+        }).join("")
+      : '<tr><td colspan="3" class="empty">Nothing outstanding</td></tr>';
+    const openIssues = complaints.filter(function (c) { return c.status !== "closed"; }).length;
+    const resolvedIssues = complaints.length - openIssues;
+    const html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
+      '<title>Sharondale monthly report ' + escapeHtml(rangeText) + '</title>' +
+      '<style>' + REPORT_CSS + '</style></head><body>' +
+      '<header class="head"><div class="brand"><span class="mark"></span><div>' +
+        '<div class="wordmark">SHARONDALE</div><div class="sub">Caretaker operations</div>' +
+      '</div></div><div class="head-right"><h1>Monthly report</h1>' +
+        '<div class="period">' + escapeHtml(rangeText) + '</div>' +
+        '<div class="generated">Generated ' + escapeHtml(generated) + '</div>' +
+      '</div></header>' +
+      '<section class="stats">' +
+        statCard(data.completed.length, "Completed this month", "green") +
+        statCard(data.scheduled.length, "Scheduled this month", "amber") +
+        statCard(data.remaining.length, "Remaining this month", "coral") +
+        statCard(data.overdue.length, "Overdue remaining", "coral") +
+        statCard(openIssues, "Open issues now", "coral") +
+        statCard(resolvedIssues, "Resolved issues now", "green") +
+      '</section>' +
+      '<h2 class="section-title">Scheduled this month (' + escapeHtml(rangeText) + ')</h2>' +
+      printableTaskList(data.scheduled, false) +
+      '<h2 class="section-title">Completed this month (' + data.completed.length + ')</h2>' +
+      printableTaskList(data.completed, true) +
+      '<p class="empty">Older completed tasks without a recorded completion date are grouped by their scheduled date.</p>' +
+      '<h2 class="section-title">Remaining this month (' + data.remaining.length + ')</h2>' +
+      printableTaskList(data.remaining, false) +
+      '<h2 class="section-title">Owner complaints &amp; reports (current status)</h2>' +
+      (complaints.length
+        ? '<table><thead><tr><th>Owner</th><th>Apartment</th><th>Type</th><th>Age</th><th>Status</th><th>Action taken</th></tr></thead><tbody>' + complaintRows + '</tbody></table>'
+        : '<p class="empty">No complaints recorded.</p>') +
+      '<h2 class="section-title">Shopping list outstanding</h2>' +
+      '<table><thead><tr><th>Item</th><th>Qty</th><th>Added by</th></tr></thead><tbody>' + shoppingRows + '</tbody></table>' +
+      '<footer class="foot"><span>Prepared by ' + escapeHtml(currentUser || "Caretaker") + '</span>' +
+        '<span>Sharondale Residence &middot; ' + escapeHtml(rangeText) + '</span></footer>' +
+      '<script>window.addEventListener("load",function(){setTimeout(function(){window.print();},350);});<' + '/script>' +
+      '</body></html>';
+    const win = window.open("", "_blank");
+    if (!win) {
+      toast("Allow pop-ups to open the report");
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    logActivity("Opened the monthly report for printing");
+    toast("Report ready - choose Save as PDF");
+  }
+
   // Builds a self-contained, print-ready report and opens the browser's print
   // dialog, where "Save as PDF" produces a real PDF. Doing it this way means no
   // PDF library to download and no dependency on a print service: the document
   // is rendered by the browser the caretaker already has.
   function openPrintableReport() {
+    if (reportPeriod === "month") {
+      openPrintableMonthlyReport();
+      return;
+    }
     const data = getWeeklyReportData();
     const completed = data.lastWeekCompleted.length;
     const thisWeekCount = data.thisWeekTasks.length;
@@ -2260,6 +2410,50 @@
   document.getElementById("downloadReport").addEventListener("click", openPrintableReport);
 
   document.getElementById("downloadReportText").addEventListener("click", function () {
+    if (reportPeriod === "month") {
+      const data = getMonthlyReportData();
+      const taskLine = function (task, dateForCompletion) {
+        const date = dateForCompletion ? (task.completedOn || task.day) : task.day;
+        return " - " + dateLabel(date) + ": " + task.title + " (" + task.location + ", " +
+          task.priority + " priority, " + assigneeLabel(task.assignee) + ")";
+      };
+      const lines = [
+        "SHARONDALE - MONTHLY OPERATIONS REPORT",
+        "Month: " + document.getElementById("reportRange").textContent,
+        "",
+        "Tasks scheduled this month: " + data.scheduled.length,
+        "Tasks completed this month: " + data.completed.length,
+        "Tasks remaining this month: " + data.remaining.length,
+        "Overdue remaining tasks: " + data.overdue.length,
+        "Open issues now: " + complaints.filter(function (c) { return c.status !== "closed"; }).length,
+        "Resolved issues now: " + complaints.filter(function (c) { return c.status === "closed"; }).length,
+        "Shopping items outstanding: " + shopping.length,
+        "",
+        "SCHEDULED THIS MONTH:"
+      ].concat(data.scheduled.length
+        ? data.scheduled.map(function (task) { return taskLine(task, false); })
+        : [" - None"]);
+      lines.push("", "COMPLETED THIS MONTH:");
+      lines.push.apply(lines, data.completed.length
+        ? data.completed.map(function (task) { return taskLine(task, true); })
+        : [" - None"]);
+      lines.push("", "REMAINING THIS MONTH:");
+      lines.push.apply(lines, data.remaining.length
+        ? data.remaining.map(function (task) { return taskLine(task, false); })
+        : [" - None"]);
+      lines.push("", "Owner complaints and reports show current status, not activity limited to this month.");
+      const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "sharondale-monthly-report.txt";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast("Plain-text report downloaded");
+      return;
+    }
     const data = getWeeklyReportData();
     const taskLine = function (task, dateForCompletion) {
       const date = dateForCompletion ? (task.completedOn || task.day) : task.day;
@@ -2430,66 +2624,104 @@
     }
   }
 
-  // Live sync: the backend pushes an event whenever any device writes, so a
-  // change made on one machine appears on the others without a manual reload.
-  // Not supported everywhere, so failure here is silent and harmless.
-  function watchForOtherDevices() {
-    if (typeof EventSource === "undefined") return;
+  function boardSnapshot(board) {
+    return JSON.stringify({
+      tasks: (board.tasks || []).filter(isValidTask).map(function (task) {
+        const normalized = normalizeTask(task);
+        normalized.id = String(normalized.id);
+        return normalized;
+      }),
+      complaints: (board.complaints || []).filter(isValidComplaint),
+      shopping: (board.shopping || []).filter(isValidShoppingItem),
+      recurring: board.recurring || [],
+      people: board.people || [],
+      phonebook: board.phonebook || [],
+      requests: (board.requests || []).filter(isValidRequest).map(normalizeRequest)
+    });
+  }
+  function currentBoardSnapshot() {
+    return boardSnapshot(boardPayload());
+  }
+  function applyRemoteBoard(board) {
+    if (!board || pendingSync || localWriteRejected || saveState === "saving") return;
+    if (boardSnapshot(board) === currentBoardSnapshot()) return;
+
+    boardLoaded = true;
+    tasks.length = 0;
+    (board.tasks || []).filter(isValidTask).map(normalizeTask)
+      .forEach(function (task) { tasks.push(task); });
+    advanceTaskUid();
+    complaints.length = 0;
+    (board.complaints || []).filter(isValidComplaint)
+      .forEach(function (complaint) { complaints.push(complaint); });
+    shopping.length = 0;
+    (board.shopping || []).filter(isValidShoppingItem)
+      .forEach(function (item) { shopping.push(item); });
+    recurringTasks = board.recurring || [];
+    people = board.people || people;
+    phonebook = board.phonebook || phonebook;
+    requests = (board.requests || []).filter(isValidRequest).map(normalizeRequest);
+    refreshPeopleSelects();
+    renderPeople();
+    renderPhonebook();
+    applyRecurringTasks();
+    renderAll();
+    renderComplaints();
+    renderRequests();
+    renderShopping();
+  }
+  let remoteRefreshInFlight = false;
+  let remoteRefreshLoggedError = false;
+  async function refreshFromServer() {
+    if (remoteRefreshInFlight || document.visibilityState === "hidden" ||
+        pendingSync || localWriteRejected || saveState === "saving") return;
+    remoteRefreshInFlight = true;
+    const versionAtStart = localChangeVersion;
     try {
-      // Only a same-origin dashboard gets the live stream. A cross-origin one
-      // (the static site on GitHub Pages) skips it: the browser would refuse to
-      // reconnect after the very first event, so it would only add console
-      // errors. That page still saves normally, it just does not update live.
-      const sameOrigin = /^https?:\/\//.test(API_BASE)
-        ? API_BASE.indexOf(location.origin + "/") === 0
-        : !/^\/\//.test(API_BASE);
-      if (!sameOrigin) return;
-      const stream = new EventSource(API_BASE + "/events");
-      // An open SSE stream keeps the browser's load/network-idle state busy, so
-      // close it on unload and when the tab is hidden. Without this a reload has
-      // to wait on the old socket and the dashboard can appear to hang.
-      window.addEventListener("beforeunload", function () { stream.close(); });
-      document.addEventListener("visibilitychange", function () {
-        if (document.visibilityState === "hidden") stream.close();
-      });
-      stream.addEventListener("board", function () {
-        // Ignore our own writes: they are already on screen and mid-edit state
-        // would otherwise be thrown away under the caretaker.
-        if (pendingSync || saveState === "saving") return;
-        api("/board", { method: "GET" })
-          .then(function (res) { return res.ok ? res.json() : null; })
-          .then(function (board) {
-            if (!board) return;
-            boardLoaded = true;
-            tasks.length = 0;
-            (board.tasks || []).filter(isValidTask).map(normalizeTask)
-              .forEach(function (t) { tasks.push(t); });
-            advanceTaskUid();
-            complaints.length = 0;
-            (board.complaints || []).filter(isValidComplaint)
-              .forEach(function (c) { complaints.push(c); });
-            shopping.length = 0;
-            (board.shopping || []).filter(isValidShoppingItem)
-              .forEach(function (i) { shopping.push(i); });
-            recurringTasks = board.recurring || [];
-            people = board.people || people;
-            phonebook = board.phonebook || phonebook;
-            requests = (board.requests || []).filter(isValidRequest).map(normalizeRequest);
-            refreshPeopleSelects();
-            renderPeople();
-            renderPhonebook();
-            applyRecurringTasks();
-            renderAll();
-            renderComplaints();
-            renderRequests();
-            renderShopping();
-          })
-          .catch(function () { /* transient; the next event will resync */ });
-      });
-      stream.onerror = function () { /* EventSource retries on its own */ };
+      const response = await api("/board", { method: "GET" });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const board = await response.json();
+      if (versionAtStart !== localChangeVersion) return;
+      applyRemoteBoard(board);
+      remoteRefreshLoggedError = false;
     } catch (error) {
-      /* live sync is a bonus, not a requirement */
+      if (!remoteRefreshLoggedError) {
+        console.warn("Could not check for board updates; will retry.", error);
+        remoteRefreshLoggedError = true;
+      }
+    } finally {
+      remoteRefreshInFlight = false;
     }
+  }
+
+  // Serverless instances do not share the backend's in-memory SSE client set.
+  // Polling the shared board is the cross-instance fallback; SSE still makes
+  // same-process deployments respond immediately.
+  function watchForOtherDevices() {
+    if (typeof EventSource !== "undefined") {
+      try {
+        const sameOrigin = /^https?:\/\//.test(API_BASE)
+          ? API_BASE.indexOf(location.origin + "/") === 0
+          : !/^\/\//.test(API_BASE);
+        if (sameOrigin) {
+          const stream = new EventSource(API_BASE + "/events");
+          window.addEventListener("beforeunload", function () { stream.close(); });
+          document.addEventListener("visibilitychange", function () {
+            if (document.visibilityState === "hidden") stream.close();
+            else refreshFromServer();
+          });
+          stream.addEventListener("board", refreshFromServer);
+          stream.onerror = function () { /* EventSource retries on its own */ };
+        }
+      } catch (error) {
+        /* Polling below remains available if the event stream cannot start. */
+      }
+    }
+    window.setInterval(refreshFromServer, 5000);
+    window.addEventListener("focus", refreshFromServer);
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") refreshFromServer();
+    });
   }
 
   start();

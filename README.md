@@ -1,6 +1,6 @@
 # Sharondale Complex Management
 
-Sharondale Complex Management application - a caretaker operations dashboard for scheduling property tasks, tracking owner complaints, keeping a shopping list, and producing a weekly report. It runs as a Node backend with a SQLite database, so the board is shared between devices rather than stored in one browser.
+Sharondale Complex Management application - a caretaker operations dashboard for scheduling property tasks, tracking owner complaints, keeping a shopping list, and producing weekly and monthly reports. It runs as a Node backend with a SQLite database, so the board is shared between devices rather than stored in one browser.
 
 ## Quick start
 
@@ -38,7 +38,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
   report until it is moved
 - Close complaints with a recorded action
 - Delete a complaint or owner report, behind the same password as task removal
-- Review the weekly report and save it as a **PDF** (print-ready, with a plain-text export alongside)
+- Review weekly and monthly reports and save either as a **PDF** (print-ready, with a plain-text export alongside)
 - Keep a shopping list of supplies: add items with a quantity, and ticking one off removes it from the list
 - Keep a phonebook of contractors, suppliers and emergency numbers, with a company and a tap-to-call number
 
@@ -86,8 +86,10 @@ static files at <http://localhost:8123/dashboard/index.html>.
 
 The board lives in a **real backend** - a Node HTTP API over a SQLite database
 (`data/sharondale.db`) - so it is not tied to one browser. Every device that
-opens the dashboard reads and writes the same board, and a change made on one
-shows up on the others over a server-sent events stream, without a manual reload.
+opens the dashboard reads and writes the same board. Changes appear on other
+open dashboards automatically: server-sent events on a single server, with a
+five-second polling fallback for serverless deployments such as Vercel. No
+manual reload is needed.
 
 A "Saved" chip in the header reports the state of the connection:
 
@@ -111,6 +113,11 @@ The weekly report separates tasks completed last week, tasks scheduled this
 week, and all unfinished tasks. New completions store their completion date in
 the shared database. Older completed tasks that predate completion-date tracking
 are grouped by their scheduled date.
+
+The monthly report covers the current calendar month, separating tasks
+scheduled during the month, tasks completed during the month, and scheduled
+tasks still outstanding. Complaint counts show their current status, and both
+report types can be printed or exported as plain text.
 
 ## Deploying it to a cloud host
 
@@ -196,9 +203,9 @@ node <browser-automation-skill-dir>/browser.mjs http://localhost:3000/ --script 
 They share one server, so each suite resets the board through the API before
 asserting, and identifies rows by unique markers rather than position.
 
-The weekly report opens a print-ready A4 document in a new tab and triggers the
-browser's print dialog, where **Save as PDF** produces the file. Doing it this
-way avoids bundling a PDF library: the document is rendered by the browser the
-caretaker already has. It is styled for print, grouped by day, and includes the
-stats, progress, task detail, complaints and outstanding shopping. A plain-text
-export sits beside it for anyone who wants the raw figures.
+The weekly and monthly reports open a print-ready A4 document in a new tab and
+trigger the browser's print dialog, where **Save as PDF** produces the file.
+Doing it this way avoids bundling a PDF library: the document is rendered by
+the browser the caretaker already has. Each report includes task detail,
+complaints and outstanding shopping, with a plain-text export beside it for
+anyone who wants the raw figures.

@@ -19,13 +19,19 @@ export default async function run(page) {
     lastWeekCompleted.setDate(lastWeekCompleted.getDate() - 3);
     const thisWeekTaskDate = new Date(monday);
     thisWeekTaskDate.setDate(thisWeekTaskDate.getDate() + 2);
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const previousMonthDate = new Date(today.getFullYear(), today.getMonth(), 0);
     const dateKey = (date) => date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") +
       "-" + String(date.getDate()).padStart(2, "0");
     const lastWeekTitle = "QA last-week completion fixture";
     const thisWeekTitle = "QA this-week unfinished fixture";
+    const thisMonthTitle = "QA monthly completion fixture";
+    const previousMonthTitle = "QA previous-month exclusion fixture";
     board.tasks.push(
       { id: "qa-report-last-week", title: lastWeekTitle, location: "Block R", day: dateKey(lastWeekCompleted), priority: "high", assignee: "Elena Ruiz", done: true, completedOn: dateKey(lastWeekCompleted) },
-      { id: "qa-report-this-week", title: thisWeekTitle, location: "Block S", day: dateKey(thisWeekTaskDate), priority: "medium", assignee: "Tomas Brandt", done: false }
+      { id: "qa-report-this-week", title: thisWeekTitle, location: "Block S", day: dateKey(thisWeekTaskDate), priority: "medium", assignee: "Tomas Brandt", done: false },
+      { id: "qa-report-this-month", title: thisMonthTitle, location: "Block U", day: dateKey(monthStart), priority: "low", assignee: "Elena Ruiz", done: true, completedOn: dateKey(monthStart) },
+      { id: "qa-report-previous-month", title: previousMonthTitle, location: "Block V", day: dateKey(previousMonthDate), priority: "low", done: false }
     );
     let token = "";
     try { token = localStorage.getItem("sharondaleToken") || ""; } catch (e) { /* token may be baked into the page */ }
@@ -40,7 +46,9 @@ export default async function run(page) {
       completionDatePersisted: stored &&
         stored.tasks.find((task) => task.id === "qa-report-last-week").completedOn === dateKey(lastWeekCompleted),
       lastWeekTitle,
-      thisWeekTitle
+      thisWeekTitle,
+      thisMonthTitle,
+      previousMonthTitle
     };
   });
   results.reportFixturesSaved = fixtures.status === 200;
@@ -116,6 +124,36 @@ export default async function run(page) {
   await page.evaluate(() => document.getElementById("downloadReportText").click());
   const download = await dl;
   results.textExportWorks = !!download;
+
+  await page.locator("#closeReport").click();
+  await page.locator("#monthlyReportNav").click();
+  await page.waitForTimeout(300);
+  results.monthlyModalOpened = await page.locator("#reportModal").evaluate(el => el.classList.contains("open"));
+  results.monthlyTitle = (await page.locator("#reportTitle").innerText()) === "Monthly report";
+  results.monthlyRange = (await page.locator("#reportRange").innerText()).includes(String(new Date().getFullYear()));
+  results.monthlyCounts = Number(await page.locator("#rCompleted").innerText()) >= 1 &&
+    Number(await page.locator("#rCarried").innerText()) >= 1 &&
+    Number(await page.locator("#rOverdueCount").innerText()) >= 0;
+  const monthlySections = await page.locator("#reportTaskSections").innerText();
+  results.monthlyIncludesCompleted = monthlySections.includes(fixtures.thisMonthTitle);
+  results.monthlyExcludesPreviousMonth = !monthlySections.includes(fixtures.previousMonthTitle);
+
+  const monthlyPopupPromise = ctx.waitForEvent("page", { timeout: 15000 });
+  await page.evaluate(() => document.getElementById("downloadReport").click());
+  const monthlyPopup = await monthlyPopupPromise;
+  await monthlyPopup.waitForLoadState("domcontentloaded");
+  await monthlyPopup.waitForTimeout(500);
+  results.monthlyPdfTitle = (await monthlyPopup.title()).includes("Sharondale monthly report");
+  const monthlyPdfText = await monthlyPopup.evaluate(() => document.body.innerText);
+  results.monthlyPdfIncludesCompleted = monthlyPdfText.includes(fixtures.thisMonthTitle);
+  results.monthlyPdfExcludesPreviousMonth = !monthlyPdfText.includes(fixtures.previousMonthTitle);
+  await monthlyPopup.close();
+
+  const monthlyDownloadPromise = page.waitForEvent("download", { timeout: 10000 }).catch(() => null);
+  await page.evaluate(() => document.getElementById("downloadReportText").click());
+  const monthlyDownload = await monthlyDownloadPromise;
+  results.monthlyTextExportWorks = !!monthlyDownload &&
+    monthlyDownload.suggestedFilename() === "sharondale-monthly-report.txt";
 
   return results;
 }
