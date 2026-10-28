@@ -24,18 +24,32 @@
   document.getElementById("todayLabel").textContent = WEEKDAY_FULL[jsDay] + ", " + now.getDate() + " " + MONTHS[now.getMonth()];
   const rangeText = "Mon " + weekDates[0].getDate() + " - Sun " + weekDates[6].getDate() + " " + MONTHS[weekDates[6].getMonth()] + " - Sharondale Residence";
   document.getElementById("weekRange").textContent = rangeText;
-  document.getElementById("reportRange").textContent = weekDates[0].getDate() + " - " + weekDates[6].getDate() + " " + MONTHS[weekDates[6].getMonth()];
+  document.getElementById("reportRange").textContent = formatDateRange(weekDates[0], weekDates[6]);
 
   // Stable calendar date (YYYY-MM-DD) for each weekday of the current week. Tasks
   // are stored against the real date, so a task scheduled for today stays on
   // today even after the week rolls over and the board re-labels its columns.
   const todayDate = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
   const UNASSIGNED_DATE = "";
+  function dateKey(date) {
+    return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0");
+  }
   const dayDate = {};
   DAY_KEYS.forEach(function (k, i) {
-    const d = weekDates[i];
-    dayDate[k] = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    dayDate[k] = dateKey(weekDates[i]);
   });
+  const previousWeekStart = new Date(weekDates[0]);
+  previousWeekStart.setDate(previousWeekStart.getDate() - 7);
+  const previousWeekEnd = new Date(weekDates[6]);
+  previousWeekEnd.setDate(previousWeekEnd.getDate() - 7);
+  const previousWeekStartDate = dateKey(previousWeekStart);
+  const previousWeekEndDate = dateKey(previousWeekEnd);
+  const currentWeekStartDate = dayDate.mon;
+  const currentWeekEndDate = dayDate.sun;
+  function formatDateRange(start, end) {
+    const options = { day: "numeric", month: "short", year: "numeric" };
+    return start.toLocaleDateString(undefined, options) + " - " + end.toLocaleDateString(undefined, options);
+  }
   function dayKeyFromDate(dateStr) {
     for (let i = 0; i < DAY_KEYS.length; i++) {
       if (dayDate[DAY_KEYS[i]] === dateStr) return DAY_KEYS[i];
@@ -133,6 +147,15 @@
   function findTask(id) {
     return tasks.find(function (t) { return String(t.id) === String(id); });
   }
+  function advanceTaskUid() {
+    const largestId = tasks.reduce(function (largest, task) {
+      const id = typeof task.id === "number" ? task.id
+        : typeof task.id === "string" && /^\d+$/.test(task.id) ? Number(task.id)
+          : NaN;
+      return Number.isSafeInteger(id) ? Math.max(largest, id) : largest;
+    }, uid - 1);
+    uid = largestId + 1;
+  }
   function toast(msg) {
     const stack = document.getElementById("toastStack");
     const el = document.createElement("div");
@@ -146,12 +169,13 @@
 
   // ---- Durable store ----------------------------------------------------
   // The board lives in a real backend now, not in this browser. Two layers:
-  //   * the server (server/index.mjs + SQLite) is the source of truth and is
-  //     shared by every device,
+  //   * the server database (Supabase when configured, otherwise server-side
+  //     SQLite) is the source of truth shared by every device,
   //   * a localStorage snapshot is kept purely as an offline cache so the
   //     dashboard still opens and stays usable when the API is unreachable.
   // Nothing here is destructive: a failed read falls back to the cache, and a
-  // failed write keeps the change locally and retries.
+  // failed write remains in page memory and retries, but is never cached as
+  // though the database had accepted it.
   const API_BASE = (window.SHARONDALE_API || "/api").replace(/\/+$/, "");
   // The write token authorises changes. It comes from a value baked into the
   // page if the operator chose that, otherwise from this browser's storage once
@@ -205,12 +229,15 @@
       typeof r.title === "string" && r.title.trim().length > 0 &&
       typeof r.location === "string" &&
       ["low", "medium", "high"].indexOf(r.priority) !== -1 &&
+      (r.assignee === undefined || typeof r.assignee === "string") &&
       ["pending", "moved"].indexOf(r.status) !== -1;
   }
   function normalizeRequest(r) {
     return {
       id: r.id, title: r.title, location: r.location, priority: r.priority,
       requestedBy: typeof r.requestedBy === "string" ? r.requestedBy : "",
+      assignee: typeof r.assignee === "string" ? r.assignee : UNASSIGNED,
+      day: typeof r.day === "string" ? r.day : UNASSIGNED_DATE,
       note: typeof r.note === "string" ? r.note : "",
       status: r.status, taskId: r.taskId === undefined ? null : r.taskId
     };
@@ -226,7 +253,8 @@
       priority: t.priority,
       assignee: typeof t.assignee === "string" ? t.assignee : UNASSIGNED,
       done: !!t.done, photo: t.photo || null, moved: t.moved || null,
-      recurring: !!t.recurring, recurringId: t.recurringId || null
+      recurring: !!t.recurring, recurringId: t.recurringId || null,
+      completedOn: typeof t.completedOn === "string" ? t.completedOn : null
     };
   }
   // Serialise what the server expects. Recurring templates travel with the
@@ -246,18 +274,20 @@
     };
   }
 
-  // The offline cache is a convenience only: it lets the dashboard open and
-  // stay usable when the API cannot be reached. It is never the source of truth.
+  // The offline cache is a convenience only: it is a snapshot last confirmed by
+  // the server, never a place where pending edits are persisted.
   // A page that has proved it has no backend must not write one: the cache
   // outlives the visit, so a later, correctly deployed page would load this
   // sample board as "the last saved copy" and pass it off as data.
-  function writeCache() {
+  function writeCache(confirmedBoard) {
     if (backendMissing) return;
-    // Saving locally while the server has refused the write for lack of the
-    // access code is what makes a locked page look "Saved" after a reload.
     if (needsToken || saveState === "locked") return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, cachedAt: Date.now(), ...boardPayload() }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: 2,
+        cachedAt: Date.now(),
+        ...confirmedBoard
+      }));
     } catch (error) {
       /* a full or disabled localStorage must not break saving to the server */
     }
@@ -301,12 +331,13 @@
   // Push the whole board to the server. The dashboard treats the task list as a
   // unit, so a single whole-board write cannot half-apply a drag or a tick.
   async function saveBoardData() {
-    writeCache();
+    const requestBody = JSON.stringify(boardPayload());
+    const confirmedBoard = JSON.parse(requestBody);
     setSaveState("saving");
     try {
       const res = await api("/board", {
         method: "PUT",
-        body: JSON.stringify(boardPayload())
+        body: requestBody
       });
       if (res.status === 401) {
         // The server wants an access code. This is not a lost change and not a
@@ -326,11 +357,12 @@
       serverReachable = true;
       backendMissing = false;
       pendingSync = false;
+      writeCache(confirmedBoard);
       setSaveState("saved");
       return true;
     } catch (error) {
-      // Keep the change (it is already in the cache) and retry shortly rather
-      // than telling the caretaker their work was lost.
+      // The pending change stays in page memory and retries, but must not be
+      // persisted to localStorage as if the database had accepted it.
       serverReachable = false;
       pendingSync = true;
       setSaveState("offline");
@@ -546,10 +578,12 @@
   async function verifyAndStoreToken(candidate) {
     const previous = writeToken;
     writeToken = candidate;
+    const requestBody = JSON.stringify(boardPayload());
+    const confirmedBoard = JSON.parse(requestBody);
     try {
       const res = await api("/board", {
         method: "PUT",
-        body: JSON.stringify(boardPayload())
+        body: requestBody
       });
       if (res.status === 401) {
         writeToken = previous;
@@ -563,6 +597,7 @@
       needsToken = false;
       serverReachable = true;
       pendingSync = false;
+      writeCache(confirmedBoard);
       setSaveState("saved");
       return true;
     } catch (error) {
@@ -608,10 +643,9 @@
     if (needsToken || saveState === "locked") openTokenModal();
   });
 
-  // Persist on every meaningful interaction, and once more if the tab is
-  // closed mid-change so nothing is lost.
+  // Persist meaningful interactions to the server. localStorage is updated
+  // only after the server confirms the write.
   function markSaving() { setSaveState("saving"); saveBoardData(); }
-  window.addEventListener("beforeunload", function () { writeCache(); });
   function logActivity(text) {
     activityLog.unshift({ text: text, time: timeNow() });
     activityLog = activityLog.slice(0, 12);
@@ -689,11 +723,7 @@
     });
     document.getElementById("backlogCount").textContent = backlog.length;
     list.classList.toggle("drag-over", false);
-    if (backlog.length === 0) {
-      list.innerHTML = '<p class="backlog-empty">Everything is scheduled. Add a task without a date to park it here.</p>';
-      return;
-    }
-    list.innerHTML = backlog.map(function (t) {
+    list.innerHTML = backlog.length ? backlog.map(function (t) {
       return '<div class="backlog-item priority-' + t.priority + '" draggable="true" data-id="' + t.id + '" tabindex="0" ' +
         'role="button" aria-label="' + escapeHtml(t.title) + ', unscheduled. Drag onto a day to schedule it.">' +
         '<span class="drag-handle"><svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>' +
@@ -703,7 +733,25 @@
         '<div class="b-meta">' + escapeHtml(t.location) + ' · ' + escapeHtml(assigneeLabel(t.assignee)) + '</div>' +
         '</div>' +
         '</div>';
-    }).join("");
+    }).join("") : '<p class="backlog-empty">Everything is scheduled. Add a task without a date to park it here.</p>';
+
+    const outsideWeek = tasks.filter(function (t) {
+      return !t.done && t.day && (t.day < currentWeekStartDate || t.day > currentWeekEndDate);
+    }).sort(function (a, b) { return a.day < b.day ? -1 : a.day > b.day ? 1 : 0; });
+    document.getElementById("outsideWeekCount").textContent = outsideWeek.length;
+    document.getElementById("outsideWeekList").innerHTML = outsideWeek.length
+      ? outsideWeek.map(function (t) {
+        return '<div class="backlog-item priority-' + t.priority + '" draggable="true" data-id="' + t.id + '" tabindex="0" ' +
+          'role="button" aria-label="' + escapeHtml(t.title) + ', scheduled for ' + escapeHtml(dateLabel(t.day)) + '. Edit to change the date.">' +
+          '<span class="drag-handle"><svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1"/><circle cx="15" cy="6" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="18" r="1"/><circle cx="15" cy="18" r="1"/></svg></span>' +
+          '<span class="status-dot"></span>' +
+          '<div class="b-body">' +
+          '<div class="b-title">' + escapeHtml(t.title) + '</div>' +
+          '<div class="b-meta">' + escapeHtml(dateLabel(t.day)) + ' · ' + escapeHtml(t.location) + ' · ' + escapeHtml(assigneeLabel(t.assignee)) + '</div>' +
+          '</div>' +
+          '</div>';
+      }).join("")
+      : '<p class="backlog-empty">No unfinished tasks scheduled outside this week.</p>';
     attachBacklogEvents();
   }
 
@@ -795,6 +843,7 @@
         const t = findTask(card.dataset.id);
         if (!t) return;
         t.done = !t.done;
+        t.completedOn = t.done ? dateKey(new Date()) : null;
         logActivity((t.done ? "Completed" : "Reopened") + " \"" + t.title + "\"");
         markSaving();
         renderAll();
@@ -972,6 +1021,7 @@
   const editModal = document.getElementById("editModal");
   const editForm = document.getElementById("editForm");
   const editDaySelect = document.getElementById("e-day");
+  const editDateInput = document.getElementById("e-date");
   const editAssigneeSelect = document.getElementById("e-assignee");
   let pendingEditTaskId = null;
 
@@ -982,6 +1032,8 @@
     DAY_KEYS.map(function (k, i) {
       return '<option value="' + k + '">' + DAY_NAMES[k] + ' ' + weekDates[i].getDate() + '</option>';
     }).join("");
+  editDaySelect.addEventListener("change", function () { editDateInput.value = ""; });
+  editDateInput.addEventListener("change", function () { if (editDateInput.value) editDaySelect.value = ""; });
 
   function fillStaffSelect(select) {
     select.innerHTML = '<option value="">Unassigned</option>' + people.map(function (p) {
@@ -1010,7 +1062,9 @@
     fillStaffSelect(editAssigneeSelect);
     document.getElementById("e-title").value = task.title;
     document.getElementById("e-location").value = task.location;
-    editDaySelect.value = dayKeyFromDate(task.day) || "";
+    const taskDayKey = dayKeyFromDate(task.day);
+    editDaySelect.value = taskDayKey || "";
+    editDateInput.value = task.day && !taskDayKey ? task.day : "";
     document.getElementById("e-priority").value = task.priority;
     editAssigneeSelect.value = personNames().indexOf(task.assignee) === -1 ? "" : task.assignee;
     editModal.classList.add("open");
@@ -1032,7 +1086,7 @@
     const location = document.getElementById("e-location").value.trim();
     if (!title || !location) return;
     const dayKey = editDaySelect.value;
-    const newDate = dayKey ? dayDate[dayKey] : UNASSIGNED_DATE;
+    const newDate = editDateInput.value || (dayKey ? dayDate[dayKey] : UNASSIGNED_DATE);
     const priority = document.getElementById("e-priority").value;
     const assignee = editAssigneeSelect.value;
 
@@ -1100,12 +1154,15 @@
 
   /* ---------------- Composer ---------------- */
   const daySelect = document.getElementById("f-day");
+  const customDateInput = document.getElementById("f-date");
   daySelect.innerHTML =
     '<option value="" selected>No date - unscheduled</option>' +
     DAY_KEYS.map(function (k, i) {
       return '<option value="' + k + '" ' + (k === todayKey ? 'selected' : '') + '>' + DAY_NAMES[k] + ' ' + weekDates[i].getDate() + '</option>';
     }).join("");
   daySelect.value = todayKey;
+  daySelect.addEventListener("change", function () { customDateInput.value = ""; });
+  customDateInput.addEventListener("change", function () { if (customDateInput.value) daySelect.value = ""; });
   const composerAssignee = document.getElementById("f-assignee");
   const composerCreatedBy = document.getElementById("f-created-by");
 
@@ -1144,6 +1201,8 @@
     document.getElementById("f-location").value = "";
     document.getElementById("f-priority").value = "medium";
     composerAssignee.value = "";
+    daySelect.value = todayKey;
+    customDateInput.value = "";
     document.getElementById("f-recurring").checked = false;
     resetPhotoField();
   });
@@ -1154,7 +1213,8 @@
     const location = document.getElementById("f-location").value.trim();
     if (!title || !location) return;
     const dayKey = document.getElementById("f-day").value;
-    const newDate = dayKey ? dayDate[dayKey] : UNASSIGNED_DATE;
+    const customDate = customDateInput.value;
+    const newDate = customDate || (dayKey ? dayDate[dayKey] : UNASSIGNED_DATE);
     const priority = document.getElementById("f-priority").value;
     const assignee = composerAssignee.value;
     // Defaults to whoever is signed in, but can be set explicitly for a task
@@ -1162,7 +1222,7 @@
     const createdBy = composerCreatedBy.value || currentUser || "";
     // A weekly repeat needs a weekday to repeat on, so an unscheduled task can
     // never be recurring.
-    const isRecurring = document.getElementById("f-recurring").checked && !!dayKey;
+    const isRecurring = document.getElementById("f-recurring").checked && !!dayKey && !customDate;
     if (isRecurring) {
       const recurringTask = {
         id: "weekly-" + Date.now().toString(36) + "-" + uid,
@@ -1203,6 +1263,7 @@
     fillCreatedBySelect(composerCreatedBy, currentUser);
     document.getElementById("f-recurring").checked = false;
     daySelect.value = todayKey;
+    customDateInput.value = "";
     resetPhotoField();
     markSaving();
     renderAll();
@@ -1384,17 +1445,23 @@
     const linked = moved && r.taskId !== null && r.taskId !== undefined &&
       findTask(r.taskId) ? findTask(r.taskId) : null;
     return '<div class="request-row ' + (moved ? 'moved' : '') + '" data-id="' + escapeHtml(r.id) + '">' +
-      '<div class="r-what">' +
+      '<div class="r-what" data-label="Requested work">' +
         '<div class="r-title">' + escapeHtml(r.title) + '</div>' +
         '<div class="r-loc">' + escapeHtml(r.location) + '</div>' +
         (r.note ? '<div class="r-note">' + escapeHtml(r.note) + '</div>' : '') +
       '</div>' +
-      '<div><span class="priority-chip ' + r.priority + '">' + priorityLabel(r.priority) + '</span></div>' +
-      '<div>' + (r.requestedBy
+      '<div data-label="Priority"><span class="priority-chip ' + r.priority + '">' + priorityLabel(r.priority) + '</span></div>' +
+      '<div data-label="Requested by">' + (r.requestedBy
         ? '<span class="r-by">' + escapeHtml(r.requestedBy) + '</span>'
         : '<span class="r-none">Not recorded</span>') + '</div>' +
-      '<div><span class="status-chip ' + r.status + '">' + (moved ? "Moved to tasks" : "Pending") + '</span></div>' +
-      '<div class="r-actions">' +
+      '<div data-label="Allocated to">' + (r.assignee
+        ? '<span class="r-assignee">' + escapeHtml(r.assignee) + '</span>'
+        : '<span class="r-none">Unassigned</span>') + '</div>' +
+      '<div data-label="Due date">' + (r.day
+        ? '<span class="r-date">' + escapeHtml(dateLabel(r.day)) + '</span>'
+        : '<span class="r-none">No date</span>') + '</div>' +
+      '<div data-label="Status"><span class="status-chip ' + r.status + '">' + (moved ? "Moved to tasks" : "Pending") + '</span></div>' +
+      '<div class="r-actions" data-label="Actions">' +
         (moved
           ? '<span class="r-none">' + (linked ? 'On the board as "' + escapeHtml(linked.title) + '"' : "Task since removed") + '</span>'
           : '<button type="button" class="btn btn-primary btn-sm act-move">' +
@@ -1441,9 +1508,8 @@
     });
   }
 
-  // The move itself: the request becomes a real task on the board (parked in
-  // Unscheduled, where a new task with no agreed date belongs) and the row stays
-  // behind as a "moved" record that links back to the task it produced.
+  // The move itself: the request becomes a real task on its allocated date, or
+  // stays in Unscheduled if no date was selected.
   function moveRequestToTask(id) {
     const index = requestIndex(id);
     if (index === -1) return;
@@ -1454,9 +1520,9 @@
       id: taskId,
       title: request.title,
       location: request.location,
-      day: UNASSIGNED_DATE,
+      day: request.day || UNASSIGNED_DATE,
       priority: request.priority,
-      assignee: UNASSIGNED,
+      assignee: request.assignee || UNASSIGNED,
       createdBy: request.requestedBy || currentUser || "",
       done: false,
       photo: null,
@@ -1464,8 +1530,11 @@
     });
     request.status = "moved";
     request.taskId = taskId;
-    logActivity('Moved "' + request.title + '" from task requests to Unscheduled');
-    toast('"' + request.title + '" added to Unscheduled');
+    logActivity('Moved "' + request.title + '" from task requests' +
+      (request.day ? " to " + dateLabel(request.day) : " to Unscheduled"));
+    toast(request.day
+      ? '"' + request.title + '" scheduled for ' + dateLabel(request.day)
+      : '"' + request.title + '" added to Unscheduled');
     markSaving();
     renderRequests();
     renderAll();
@@ -1499,6 +1568,8 @@
       location: location,
       priority: document.getElementById("requestPriority").value,
       requestedBy: byInput.value.trim(),
+      assignee: document.getElementById("requestAssignee").value,
+      day: document.getElementById("requestDate").value,
       note: noteInput.value.trim(),
       status: "pending",
       taskId: null
@@ -1510,6 +1581,8 @@
     byInput.value = "";
     noteInput.value = "";
     document.getElementById("requestPriority").value = "medium";
+    document.getElementById("requestAssignee").value = "";
+    document.getElementById("requestDate").value = "";
     markSaving();
     renderRequests();
     titleInput.focus();
@@ -1721,6 +1794,7 @@
   // adopts them as the default creator; otherwise a hand-picked creator is kept.
   function refreshPeopleSelects(creatorFollowsUser) {
     fillStaffSelect(composerAssignee);
+    fillStaffSelect(document.getElementById("requestAssignee"));
     const createdBySelect = document.getElementById("f-created-by");
     const creator = !creatorFollowsUser && personNames().indexOf(createdBySelect.value) !== -1
       ? createdBySelect.value
@@ -1882,17 +1956,53 @@
 
   /* ---------------- Weekly report modal ---------------- */
   const reportModal = document.getElementById("reportModal");
+  function getWeeklyReportData() {
+    const lastWeekCompleted = tasks.filter(function (task) {
+      const completedDate = task.completedOn || task.day;
+      return task.done && completedDate >= previousWeekStartDate && completedDate <= previousWeekEndDate;
+    });
+    const thisWeekTasks = tasks.filter(function (task) {
+      return task.day >= currentWeekStartDate && task.day <= currentWeekEndDate;
+    });
+    const unfinished = tasks.filter(function (task) { return !task.done; });
+    return {
+      lastWeekCompleted: lastWeekCompleted,
+      thisWeekTasks: thisWeekTasks,
+      thisWeekCompleted: thisWeekTasks.filter(function (task) { return task.done; }),
+      unfinished: unfinished,
+      overdue: unfinished.filter(function (task) { return task.day && task.day < todayDate; })
+    };
+  }
+  function reportTaskList(items, dateForCompletion) {
+    if (!items.length) return '<p class="report-empty">No tasks in this section.</p>';
+    return '<ul class="report-task-list">' + items.map(function (task) {
+      const date = dateForCompletion ? (task.completedOn || task.day) : task.day;
+      return '<li><strong>' + escapeHtml(task.title) + '</strong><span>' +
+        escapeHtml(dateLabel(date)) + ' &middot; ' + escapeHtml(task.location) + ' &middot; ' +
+        priorityLabel(task.priority) + ' priority &middot; ' + escapeHtml(assigneeLabel(task.assignee)) +
+        '</span></li>';
+    }).join("") + '</ul>';
+  }
   function openReport() {
-    const completed = tasks.filter(function (t) { return t.done; }).length;
-    const carried = tasks.filter(function (t) { return t.moved && !t.done; }).length;
-    // "Overdue" is any still-open task whose real date has already passed.
-    const overdue = tasks.filter(function (t) { return t.day && t.day < todayDate && !t.done; }).length;
-    document.getElementById("rCompleted").textContent = completed;
-    document.getElementById("rCarried").textContent = carried;
-    document.getElementById("rOverdue").textContent = overdue;
-    document.getElementById("rTotal").textContent = tasks.length;
+    const data = getWeeklyReportData();
+    document.getElementById("rCompleted").textContent = data.lastWeekCompleted.length;
+    document.getElementById("rCarried").textContent = data.thisWeekTasks.length;
+    document.getElementById("rOverdue").textContent = data.unfinished.length;
+    document.getElementById("rTotal").textContent = data.thisWeekTasks.length;
+    document.getElementById("rOverdueCount").textContent = data.overdue.length;
+    document.getElementById("rCurrentCompleted").textContent = data.thisWeekCompleted.length;
     document.getElementById("rResolved").textContent = complaints.filter(function (c) { return c.status === "closed"; }).length;
     document.getElementById("rOpenIssues").textContent = complaints.filter(function (c) { return c.status !== "closed"; }).length;
+    document.getElementById("reportTaskSections").innerHTML =
+      '<section class="report-task-section"><h3>Completed last week <span>' +
+        escapeHtml(formatDateRange(previousWeekStart, previousWeekEnd)) + '</span></h3>' +
+        reportTaskList(data.lastWeekCompleted, true) +
+        '<p class="report-note">Older tasks without a recorded completion date are grouped by their scheduled date.</p></section>' +
+      '<section class="report-task-section"><h3>This week&apos;s tasks <span>' +
+        escapeHtml(formatDateRange(weekDates[0], weekDates[6])) + '</span></h3>' +
+        reportTaskList(data.thisWeekTasks, false) + '</section>' +
+      '<section class="report-task-section"><h3>Unfinished tasks <span>' + data.unfinished.length +
+        '</span></h3>' + reportTaskList(data.unfinished, false) + '</section>';
     reportModal.classList.add("open");
   }
   function closeReport() { reportModal.classList.remove("open"); }
@@ -1993,6 +2103,10 @@
     .status-progress { background: #F6EBD8; color: #A9761B; }
     .status-closed { background: #E4EEE7; color: #17483A; }
     .empty { color: #6B7A72; font-style: italic; padding: 8px 6px; }
+    .printable-task-list { list-style: none; margin: 0 0 10px; padding: 0; }
+    .printable-task-list li { padding: 6px 7px; border-bottom: 1px solid #F0F2EE; break-inside: avoid; }
+    .printable-task-list li strong { display: block; color: #1B2A24; }
+    .printable-task-list li span { display: block; margin-top: 2px; color: #6B7A72; font-size: 9px; }
     .foot {
       display: flex; justify-content: space-between;
       margin-top: 22px; padding-top: 10px; border-top: 1px solid #DFE4DE;
@@ -2006,9 +2120,11 @@
   // PDF library to download and no dependency on a print service: the document
   // is rendered by the browser the caretaker already has.
   function openPrintableReport() {
-    const completed = tasks.filter(function (t) { return t.done; }).length;
-    const carried = tasks.filter(function (t) { return t.moved && !t.done; }).length;
-    const overdue = tasks.filter(function (t) { return t.day && t.day < todayDate && !t.done; }).length;
+    const data = getWeeklyReportData();
+    const completed = data.lastWeekCompleted.length;
+    const thisWeekCount = data.thisWeekTasks.length;
+    const unfinished = data.unfinished.length;
+    const overdue = data.overdue.length;
     const unscheduled = tasks.filter(function (t) { return !t.day; }).length;
     const openIssues = complaints.filter(function (c) { return c.status !== "closed"; }).length;
     const resolvedIssues = complaints.filter(function (c) { return c.status === "closed"; }).length;
@@ -2016,17 +2132,17 @@
     const generated = new Date().toLocaleString([], {
       day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit"
     });
-    const completionPct = tasks.length ? Math.round((completed / tasks.length) * 100) : 0;
+    const completionPct = thisWeekCount
+      ? Math.round((data.thisWeekCompleted.length / thisWeekCount) * 100)
+      : 0;
 
-    // Group the tasks by day so the report reads like a week, not a flat list.
+    // Group this week's tasks by day so the report reads like a weekly route.
     const byDate = {};
-    tasks.forEach(function (t) {
-      const key = t.day || "unscheduled";
+    data.thisWeekTasks.forEach(function (t) {
+      const key = t.day;
       (byDate[key] = byDate[key] || []).push(t);
     });
     const orderedDates = Object.keys(byDate).sort(function (a, b) {
-      if (a === "unscheduled") return 1;
-      if (b === "unscheduled") return -1;
       return a < b ? -1 : 1;
     });
 
@@ -2045,13 +2161,18 @@
           '</tr>';
       }).join("");
       return '<section class="day">' +
-        '<h3>' + escapeHtml(dateLabel(key === "unscheduled" ? "" : key)) +
+        '<h3>' + escapeHtml(dateLabel(key)) +
         '<span class="day-count">' + byDate[key].length + ' task' + (byDate[key].length === 1 ? '' : 's') + '</span></h3>' +
         '<table><thead><tr>' +
         '<th class="col-state"></th><th>Task</th><th>Location</th><th>Priority</th><th>Assigned to</th><th class="col-by">Created by</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table>' +
         '</section>';
     }).join("");
+    const printableTaskList = function (items, dateForCompletion) {
+        return reportTaskList(items, dateForCompletion)
+          .replace("report-task-list", "report-task-list printable-task-list")
+          .replace("report-empty", "empty");
+    };
 
     const complaintRows = complaints.map(function (c) {
       const label = c.status === "open" ? "Open" : c.status === "progress" ? "In progress" : "Resolved";
@@ -2083,22 +2204,27 @@
         '</div>' +
       '</header>' +
       '<section class="stats">' +
-        statCard(completed, "Completed", "green") +
-        statCard(carried, "Carried over", "amber") +
-        statCard(overdue, "Overdue", "coral") +
+        statCard(completed, "Completed last week", "green") +
+        statCard(thisWeekCount, "This week's tasks", "amber") +
+        statCard(unfinished, "Unfinished tasks", "coral") +
         statCard(unscheduled, "Unscheduled", "muted") +
         statCard(openIssues, "Open issues", "coral") +
         statCard(resolvedIssues, "Issues resolved", "green") +
       '</section>' +
       '<section class="bar-wrap">' +
-        '<div class="bar-label"><span>Completion this week</span><b>' + completionPct + '%</b></div>' +
+        '<div class="bar-label"><span>This week completed</span><b>' + completionPct + '%</b></div>' +
         '<div class="bar"><span style="width:' + completionPct + '%"></span></div>' +
-        '<div class="bar-foot">' + completed + ' of ' + tasks.length + ' logged tasks done' +
+        '<div class="bar-foot">' + data.thisWeekCompleted.length + ' of ' + thisWeekCount + ' tasks completed this week' +
           (shopping.length ? ' &middot; ' + shopping.length + ' shopping item' + (shopping.length === 1 ? '' : 's') + ' outstanding' : '') +
         '</div>' +
       '</section>' +
-      '<h2 class="section-title">Task detail</h2>' +
-      (dayBlocks || '<p class="empty">No tasks logged for this week.</p>') +
+      '<h2 class="section-title">Completed last week (' + escapeHtml(formatDateRange(previousWeekStart, previousWeekEnd)) + ')</h2>' +
+      printableTaskList(data.lastWeekCompleted, true) +
+      '<p class="empty">Older tasks without a recorded completion date are grouped by their scheduled date.</p>' +
+      '<h2 class="section-title">This week&apos;s tasks (' + escapeHtml(rangeText) + ')</h2>' +
+      (dayBlocks || '<p class="empty">No tasks scheduled for this week.</p>') +
+      '<h2 class="section-title">Unfinished tasks (' + unfinished + ')</h2>' +
+      printableTaskList(data.unfinished, false) +
       '<h2 class="section-title">Owner complaints &amp; reports</h2>' +
       (complaints.length
         ? '<table><thead><tr><th>Owner</th><th>Apartment</th><th>Type</th><th>Age</th><th>Status</th><th>Action taken</th></tr></thead><tbody>' + complaintRows + '</tbody></table>'
@@ -2134,29 +2260,44 @@
   document.getElementById("downloadReport").addEventListener("click", openPrintableReport);
 
   document.getElementById("downloadReportText").addEventListener("click", function () {
-    const completed = tasks.filter(function (t) { return t.done; }).length;
-    const carried = tasks.filter(function (t) { return t.moved && !t.done; }).length;
-    const overdue = tasks.filter(function (t) { return t.day && t.day < todayDate && !t.done; }).length;
+    const data = getWeeklyReportData();
+    const taskLine = function (task, dateForCompletion) {
+      const date = dateForCompletion ? (task.completedOn || task.day) : task.day;
+      return " - " + dateLabel(date) + ": " + task.title + " (" + task.location + ", " +
+        task.priority + " priority, " + assigneeLabel(task.assignee) + ")";
+    };
     const unscheduled = tasks.filter(function (t) { return !t.day; }).length;
     const lines = [
       "SHARONDALE - WEEKLY OPERATIONS REPORT",
-      document.getElementById("reportRange").textContent,
+      "This week: " + document.getElementById("reportRange").textContent,
       "",
-      "Completed tasks: " + completed,
-      "Carried over: " + carried,
-      "Overdue: " + overdue,
+      "Completed last week: " + data.lastWeekCompleted.length,
+      "This week's tasks: " + data.thisWeekTasks.length,
+      "Unfinished tasks: " + data.unfinished.length,
+      "Overdue: " + data.overdue.length,
       "Unscheduled: " + unscheduled,
-      "Total tasks logged: " + tasks.length,
+      "Completed this week: " + data.thisWeekCompleted.length,
       "Owner issues resolved: " + complaints.filter(function (c) { return c.status === 'closed'; }).length,
       "Open issues remaining: " + complaints.filter(function (c) { return c.status !== 'closed'; }).length,
       "Shopping items outstanding: " + shopping.length,
       "",
-      "Task detail:"
-    ].concat(tasks.map(function (t) {
-      return " - [" + (t.done ? "x" : " ") + "] " + dateLabel(t.day) + ": " + t.title + " (" + t.location + ", " + t.priority + " priority, " + assigneeLabel(t.assignee) + ")" + (t.moved ? " - moved from " + dateLabel(t.moved) : "");
-    })).concat(shopping.length ? ["", "Shopping list detail:"].concat(shopping.map(function (i) {
-      return " - x" + i.qty + " " + i.label;
-    })) : []);
+      "COMPLETED LAST WEEK (" + formatDateRange(previousWeekStart, previousWeekEnd) + "):"
+    ].concat(data.lastWeekCompleted.length
+      ? data.lastWeekCompleted.map(function (task) { return taskLine(task, true); })
+      : [" - None"]);
+    lines.push("", "THIS WEEK'S TASKS:");
+    lines.push.apply(lines, data.thisWeekTasks.length
+      ? data.thisWeekTasks.map(function (task) { return taskLine(task, false); })
+      : [" - None"]);
+    lines.push("", "UNFINISHED TASKS:");
+    lines.push.apply(lines, data.unfinished.length
+      ? data.unfinished.map(function (task) { return taskLine(task, false); })
+      : [" - None"]);
+    lines.push("", "Note: older completed tasks without a recorded completion date are grouped by scheduled date.");
+    if (shopping.length) {
+      lines.push("", "Shopping list detail:");
+      lines.push.apply(lines, shopping.map(function (item) { return " - x" + item.qty + " " + item.label; }));
+    }
     const blob = new Blob([lines.join("\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -2227,6 +2368,7 @@
         boardLoaded = true;
         tasks.length = 0;
         board.tasks.forEach(function (t) { tasks.push(t); });
+        advanceTaskUid();
         complaints.length = 0;
         board.complaints.forEach(function (c) { complaints.push(c); });
         shopping.length = 0;
@@ -2322,6 +2464,7 @@
             tasks.length = 0;
             (board.tasks || []).filter(isValidTask).map(normalizeTask)
               .forEach(function (t) { tasks.push(t); });
+            advanceTaskUid();
             complaints.length = 0;
             (board.complaints || []).filter(isValidComplaint)
               .forEach(function (c) { complaints.push(c); });

@@ -16,6 +16,7 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - Create tasks with location, priority, due date, notes, and a local photo preview
 - Create a task with no date: it is parked in the **Unscheduled** list until you schedule it
 - Drag an unscheduled task onto any day column to schedule it, or drag a scheduled task back to the Unscheduled list
+- Schedule tasks and task requests for any calendar date; tasks outside the current week appear in the Other scheduled dates list
 - Assign a task to a team member when creating it, or leave it unassigned
 - Record who created a task: the composer has a **Created by** list that defaults to whoever is signed in
 - Manage the roster from the **People** screen: add or remove names, give them a role, and see each person's open task count
@@ -30,8 +31,9 @@ Then open <http://localhost:3000/>. See [Running it](#running-it) for details an
 - Create a task directly from a complaint
 - Log required work as a **task request** first, then move it onto the board: the
   Task requests screen is a table of everything reported but not yet accepted,
-  with an **Add task request** button. **Move to task** turns a request into an
-  unscheduled task in one click, and the row stays behind marked *Moved to tasks*.
+  with an **Add task request** button. Requests can be allocated to a staff
+  member and given an optional due date; **Move to task** carries both onto the
+  board task, and the row stays behind marked *Moved to tasks*.
   Nothing in the log is counted by the calendar, the counters or the weekly
   report until it is moved
 - Close complaints with a recorded action
@@ -97,10 +99,18 @@ A "Saved" chip in the header reports the state of the connection:
 | **Offline - will retry** | The server was unreachable; the change is held and retried. |
 | **No backend - nothing saved** | The page was published without an API. The board is empty and typing into it is refused. |
 
-The browser keeps a `localStorage` snapshot purely as an **offline cache**: if the
-API is down the dashboard still opens and stays usable, and it syncs once the
-server returns. It is a mirror of the server, never the source of truth - and it
-is not written at all when the page has no backend or is locked for editing.
+The browser keeps a `localStorage` snapshot purely as an **offline cache**: it
+contains only the last board snapshot confirmed by the server, never an
+unconfirmed edit. If the API goes down while the dashboard is open, changes
+remain in that page's memory and retry while it stays open; they are not saved
+locally and are not shared until the database confirms them. A reload while
+offline therefore shows only the last confirmed snapshot. The database remains
+the source of truth.
+
+The weekly report separates tasks completed last week, tasks scheduled this
+week, and all unfinished tasks. New completions store their completion date in
+the shared database. Older completed tasks that predate completion-date tracking
+are grouped by their scheduled date.
 
 ## Deploying it to a cloud host
 
@@ -192,4 +202,3 @@ way avoids bundling a PDF library: the document is rendered by the browser the
 caretaker already has. It is styled for print, grouped by day, and includes the
 stats, progress, task detail, complaints and outstanding shopping. A plain-text
 export sits beside it for anyone who wants the raw figures.
-

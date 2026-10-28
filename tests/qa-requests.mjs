@@ -25,15 +25,18 @@ export default async function run(page) {
   results.navCountMatches = (await page.locator("#navRequestCount").innerText()) === String(rowsBefore);
 
   // The log is a table: a header row of column labels plus one row per request.
-  results.tableHasHeader = (await page.locator(".requests-head span").count()) === 5;
+  results.tableHasHeader = (await page.locator(".requests-head span").count()) === 7;
   results.hasAddButton = (await page.locator("#addRequestBtn").count()) === 1;
   results.addButtonLabelled = (await page.locator("#addRequestBtn").innerText()).trim().includes("Add task request");
 
-  // A request row shows what was asked for, where, by whom and its status.
+  // A request row shows what was asked for, where, by whom, who is allocated,
+  // and its status.
   const firstRow = page.locator("#requestsList .request-row").first();
   results.rowShowsTitle = (await firstRow.locator(".r-title").count()) === 1;
   results.rowShowsLocation = (await firstRow.locator(".r-loc").count()) === 1;
   results.rowShowsPriority = (await firstRow.locator(".priority-chip").count()) === 1;
+  results.rowShowsAllocatedPerson = (await firstRow
+    .locator('.r-assignee, [data-label="Allocated to"] .r-none').count()) === 1;
   results.rowShowsStatus = (await firstRow.locator(".status-chip.pending").count()) === 1;
 
   // Nothing in the log is on the board: a request only becomes a task when it is
@@ -53,9 +56,18 @@ export default async function run(page) {
   // A real submit logs a request through the add-request button.
   const title = marker("QA request replace gate remote");
   const location = "Block Q - Unit 3";
+  const dueDate = await page.evaluate(() => {
+    const date = new Date();
+    const offset = date.getDay() === 0 ? 1 : 8 - date.getDay();
+    date.setDate(date.getDate() + offset + 14);
+    return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") +
+      "-" + String(date.getDate()).padStart(2, "0");
+  });
   await page.locator("#requestTitle").fill(title);
   await page.locator("#requestLocation").fill(location);
   await page.locator("#requestedBy").fill("QA Owner");
+  await page.locator("#requestAssignee").selectOption("Elena Ruiz");
+  await page.locator("#requestDate").fill(dueDate);
   await page.locator("#requestPriority").selectOption("high");
   await page.locator("#requestNote").fill("Reported twice this week");
   await page.locator("#addRequestBtn").click();
@@ -66,10 +78,15 @@ export default async function run(page) {
   results.newRowVisible = (await newRow.count()) === 1;
   results.newRowShowsLocation = (await newRow.locator(".r-loc").innerText()).includes(location);
   results.newRowShowsRequester = (await newRow.locator(".r-by").innerText()).includes("QA Owner");
+  results.newRowShowsAssignee = (await newRow.locator(".r-assignee").innerText()) === "Elena Ruiz";
+  results.newRowShowsDueDate = (await newRow.locator(".r-date").count()) === 1;
+  const dueDateLabel = await newRow.locator(".r-date").innerText();
   results.newRowShowsPriority = (await newRow.locator(".priority-chip").innerText()).trim() === "High";
   results.newRowIsPending = (await newRow.locator(".status-chip.pending").count()) === 1;
   results.formCleared = (await page.locator("#requestTitle").inputValue()) === "" &&
-    (await page.locator("#requestLocation").inputValue()) === "";
+    (await page.locator("#requestLocation").inputValue()) === "" &&
+    (await page.locator("#requestAssignee").inputValue()) === "" &&
+    (await page.locator("#requestDate").inputValue()) === "";
   results.navCountUpdated = (await page.locator("#navRequestCount").innerText()) === String(rowsBefore + 1);
 
   // It must reach the server, not just the DOM.
@@ -77,7 +94,8 @@ export default async function run(page) {
   for (let attempt = 0; attempt < 40 && !persisted; attempt++) {
     const board = await serverBoard(page);
     persisted = Array.isArray(board.requests) &&
-      board.requests.some((r) => r.title === title && r.location === location && r.status === "pending");
+      board.requests.some((r) => r.title === title && r.location === location &&
+        r.status === "pending" && r.assignee === "Elena Ruiz" && r.day === dueDate);
     if (!persisted) await page.waitForTimeout(100);
   }
   results.persistedToServer = persisted;
@@ -96,27 +114,30 @@ export default async function run(page) {
   await page.waitForTimeout(400);
   results.survivesReload = (await page.locator("#requestsList .request-row").filter({ hasText: title }).count()) === 1;
 
-  // THE POINT OF THE SCREEN: the request is moved onto the tasks board. The new
-  // task is parked in Unscheduled, so the board itself does not gain a card; the
-  // backlog does. Count that instead of the calendar columns.
+  // The request's arbitrary due date and allocation follow it onto the board.
   const target = page.locator("#requestsList .request-row").filter({ hasText: title });
   results.moveButtonPresent = (await target.locator(".act-move").count()) === 1;
-  const backlogBefore = await page.locator("#backlogList .backlog-item").count();
+  const outsideWeekBefore = await page.locator("#outsideWeekList .backlog-item").count();
   await target.locator(".act-move").click();
   await page.waitForTimeout(600);
 
   results.rowMarkedMoved = (await target.locator(".status-chip.moved").count()) === 1;
   results.moveButtonGone = (await target.locator(".act-move").count()) === 0;
   results.navCountDecremented = (await page.locator("#navRequestCount").innerText()) === String(rowsBefore);
-  results.taskCreatedInUnscheduled = (await page.locator("#backlogList .backlog-item").count()) === backlogBefore + 1;
+  results.taskCreatedOnOtherDate = (await page.locator("#outsideWeekList .backlog-item").count()) === outsideWeekBefore + 1;
 
-  // It arrives as an unscheduled task with the request's details, so the
-  // caretaker still chooses the day.
+  // It appears in the other-dates list with its due date and allocation.
   await page.locator('.nav-item[data-view="tasks"]').dispatchEvent("click");
   await page.waitForTimeout(200);
-  const backlogItem = page.locator("#backlogList .backlog-item").filter({ hasText: title });
-  results.taskParkedInUnscheduled = (await backlogItem.count()) === 1;
+  const backlogItem = page.locator("#outsideWeekList .backlog-item").filter({ hasText: title });
+  results.taskVisibleOnOtherDate = (await backlogItem.count()) === 1;
   results.taskKeepsLocation = (await backlogItem.locator(".b-meta").innerText()).includes(location);
+  results.taskKeepsDueDate = (await backlogItem.locator(".b-meta").innerText()).includes(dueDateLabel);
+  results.taskKeepsAssignee = await page.evaluate((taskTitle) => {
+    const card = [...document.querySelectorAll(".backlog-item")]
+      .find((item) => item.querySelector(".b-title")?.innerText === taskTitle);
+    return !!card && card.innerText.includes("Elena Ruiz");
+  }, title);
 
   // The move reaches the server: the request is marked moved and the task exists.
   let movePersisted = false;
@@ -124,12 +145,14 @@ export default async function run(page) {
   for (let attempt = 0; attempt < 40 && !movePersisted; attempt++) {
     const board = await serverBoard(page);
     const request = (board.requests || []).find((r) => r.title === title);
-    movedTaskOnServer = (board.tasks || []).some((t) => t.title === title && t.day === "");
-    movePersisted = !!request && request.status === "moved" && !!request.taskId && movedTaskOnServer;
+    movedTaskOnServer = (board.tasks || []).some((t) =>
+      t.title === title && t.day === dueDate && t.assignee === "Elena Ruiz");
+    movePersisted = !!request && request.status === "moved" &&
+      !!request.taskId && request.day === dueDate && movedTaskOnServer;
     if (!movePersisted) await page.waitForTimeout(100);
   }
   results.movePersistedToServer = movePersisted;
-  results.movedTaskIsUnscheduledOnServer = movedTaskOnServer;
+  results.movedTaskKeepsDateAndAssignee = movedTaskOnServer;
 
   // Deleting a request takes it off the server too.
   await page.locator('.nav-item[data-view="requests"]').dispatchEvent("click");

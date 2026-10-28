@@ -10,6 +10,44 @@ export default async function run(page) {
   const results = {};
   await resetBoard(page);
 
+  const fixtures = await page.evaluate(async () => {
+    const board = await (await fetch("/api/board")).json();
+    const today = new Date();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + (today.getDay() === 0 ? -6 : 1 - today.getDay()));
+    const lastWeekCompleted = new Date(monday);
+    lastWeekCompleted.setDate(lastWeekCompleted.getDate() - 3);
+    const thisWeekTaskDate = new Date(monday);
+    thisWeekTaskDate.setDate(thisWeekTaskDate.getDate() + 2);
+    const dateKey = (date) => date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") +
+      "-" + String(date.getDate()).padStart(2, "0");
+    const lastWeekTitle = "QA last-week completion fixture";
+    const thisWeekTitle = "QA this-week unfinished fixture";
+    board.tasks.push(
+      { id: "qa-report-last-week", title: lastWeekTitle, location: "Block R", day: dateKey(lastWeekCompleted), priority: "high", assignee: "Elena Ruiz", done: true, completedOn: dateKey(lastWeekCompleted) },
+      { id: "qa-report-this-week", title: thisWeekTitle, location: "Block S", day: dateKey(thisWeekTaskDate), priority: "medium", assignee: "Tomas Brandt", done: false }
+    );
+    let token = "";
+    try { token = localStorage.getItem("sharondaleToken") || ""; } catch (e) { /* token may be baked into the page */ }
+    const response = await fetch("/api/board", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", "X-Sharondale-Token": token },
+      body: JSON.stringify(board)
+    });
+    const stored = response.ok ? await (await fetch("/api/board")).json() : null;
+    return {
+      status: response.status,
+      completionDatePersisted: stored &&
+        stored.tasks.find((task) => task.id === "qa-report-last-week").completedOn === dateKey(lastWeekCompleted),
+      lastWeekTitle,
+      thisWeekTitle
+    };
+  });
+  results.reportFixturesSaved = fixtures.status === 200;
+  results.completionDateStoredInDatabase = fixtures.completionDatePersisted === true;
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1000);
+
   // Give the report a task with a known creator so the column is exercised.
   const TASK = marker("Report row");
   await page.evaluate((task) => {
@@ -28,6 +66,12 @@ export default async function run(page) {
   results.modalOpened = await page.locator("#reportModal").evaluate(el => el.classList.contains("open"));
   results.pdfButtonLabelled = (await page.locator("#downloadReport").innerText()).includes("PDF");
   results.textButtonExists = await page.locator("#downloadReportText").isVisible();
+  const modalReport = await page.locator("#reportTaskSections").innerText();
+  results.modalShowsLastWeekCompleted = modalReport.includes(fixtures.lastWeekTitle);
+  results.modalShowsThisWeekTasks = modalReport.includes(fixtures.thisWeekTitle);
+  results.modalShowsUnfinishedList = modalReport.includes("Unfinished tasks") &&
+    modalReport.includes(fixtures.thisWeekTitle);
+  results.lastWeekCountCorrect = (await page.locator("#rCompleted").innerText()) === "1";
 
   // Clicking Download PDF opens a print-ready document in a new tab.
   const ctx = page.context();
@@ -40,8 +84,11 @@ export default async function run(page) {
   results.reportTitle = (await popup.title()).includes("Sharondale weekly report");
   const text = await popup.evaluate(() => document.body.innerText);
   results.hasOwnTask = text.includes(TASK);
-  results.hasSections = text.includes("TASK DETAIL") &&
+  results.hasSections = text.includes("COMPLETED LAST WEEK") &&
+    text.includes("THIS WEEK'S TASKS") && text.includes("UNFINISHED TASKS") &&
     text.includes("OWNER COMPLAINTS") && text.includes("SHOPPING LIST");
+  results.pdfShowsLastWeekCompleted = text.includes(fixtures.lastWeekTitle);
+  results.pdfShowsUnfinishedTask = text.includes(fixtures.thisWeekTitle);
   results.hasStats = (await popup.locator(".stat").count()) === 6;
   results.hasProgressBar = (await popup.locator(".bar span").count()) === 1;
   results.groupedByDay = (await popup.locator("section.day").count()) > 0;

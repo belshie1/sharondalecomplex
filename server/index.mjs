@@ -196,6 +196,13 @@ function validateBoard(body) {
         if (typeof r.title !== "string" || !r.title.trim()) errors.push(`requests[${i}].title is required.`);
         if (typeof r.location !== "string" || !r.location.trim()) errors.push(`requests[${i}].location is required.`);
         if (!["low", "medium", "high"].includes(r.priority)) errors.push(`requests[${i}].priority is invalid.`);
+        if (r.assignee !== undefined && typeof r.assignee !== "string") {
+          errors.push(`requests[${i}].assignee must be a string.`);
+        }
+        if (r.day !== undefined && r.day !== "" &&
+            (typeof r.day !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(r.day))) {
+          errors.push(`requests[${i}].day must be an ISO date or empty.`);
+        }
         // A request is either waiting to be picked up or has been moved onto
         // the board; anything else would lose it from both lists.
         if (r.status !== undefined && !["pending", "moved"].includes(r.status)) {

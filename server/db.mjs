@@ -66,6 +66,7 @@ if (!useSupabase) {
       assignee     TEXT NOT NULL DEFAULT '',
       created_by   TEXT NOT NULL DEFAULT '',
       done         INTEGER NOT NULL DEFAULT 0,
+      completed_on TEXT,
       photo        TEXT,
       moved        TEXT,
       recurring    INTEGER NOT NULL DEFAULT 0,
@@ -139,6 +140,8 @@ if (!useSupabase) {
       location     TEXT NOT NULL,
       priority     TEXT NOT NULL CHECK (priority IN ('low','medium','high')),
       requested_by TEXT NOT NULL DEFAULT '',
+      assignee     TEXT NOT NULL DEFAULT '',
+      due_date     TEXT NOT NULL DEFAULT '',
       note         TEXT NOT NULL DEFAULT '',
       status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','moved')),
       task_id      TEXT,
@@ -157,6 +160,9 @@ if (!useSupabase) {
   }
 
   ensureColumn("tasks", "created_by", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("tasks", "completed_on", "TEXT");
+  ensureColumn("task_requests", "assignee", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn("task_requests", "due_date", "TEXT NOT NULL DEFAULT ''");
 }
 
 const now = () => new Date().toISOString();
@@ -212,6 +218,7 @@ function taskFromRow(r) {
     assignee: r.assignee,
     createdBy: r.created_by || "",
     done: !!r.done,
+    completedOn: r.completed_on || null,
     photo: r.photo,
     moved: r.moved,
     recurring: !!r.recurring,
@@ -256,6 +263,8 @@ function taskRequestFromRow(r) {
     location: r.location,
     priority: r.priority,
     requestedBy: r.requested_by || "",
+    assignee: r.assignee || "",
+    day: r.due_date || "",
     note: r.note || "",
     status: r.status,
     taskId: r.task_id,
@@ -316,11 +325,11 @@ const sqlite = () => ({
 
 const upsertTask = () =>
   db.prepare(`
-    INSERT INTO tasks (id,title,location,due_date,priority,assignee,created_by,done,photo,moved,recurring,recurring_id,sort_order,updated_at)
-    VALUES (:id,:title,:location,:day,:priority,:assignee,:createdBy,:done,:photo,:moved,:recurring,:recurringId,:sortOrder,:updatedAt)
+    INSERT INTO tasks (id,title,location,due_date,priority,assignee,created_by,done,completed_on,photo,moved,recurring,recurring_id,sort_order,updated_at)
+    VALUES (:id,:title,:location,:day,:priority,:assignee,:createdBy,:done,:completedOn,:photo,:moved,:recurring,:recurringId,:sortOrder,:updatedAt)
     ON CONFLICT(id) DO UPDATE SET
       title=:title, location=:location, due_date=:day, priority=:priority,
-      assignee=:assignee, created_by=:createdBy, done=:done, photo=:photo, moved=:moved,
+      assignee=:assignee, created_by=:createdBy, done=:done, completed_on=:completedOn, photo=:photo, moved=:moved,
       recurring=:recurring, recurring_id=:recurringId, sort_order=:sortOrder,
       updated_at=:updatedAt
   `);
@@ -368,11 +377,11 @@ function replaceBoardSqlite({ tasks = [], complaints = [], shopping = [], recurr
       sort_order=:sortOrder, updated_at=:updatedAt
   `);
   const writeRequest = db.prepare(`
-    INSERT INTO task_requests (id,title,location,priority,requested_by,note,status,task_id,sort_order,updated_at)
-    VALUES (:id,:title,:location,:priority,:requestedBy,:note,:status,:taskId,:sortOrder,:updatedAt)
+    INSERT INTO task_requests (id,title,location,priority,requested_by,assignee,due_date,note,status,task_id,sort_order,updated_at)
+    VALUES (:id,:title,:location,:priority,:requestedBy,:assignee,:day,:note,:status,:taskId,:sortOrder,:updatedAt)
     ON CONFLICT(id) DO UPDATE SET
       title=:title, location=:location, priority=:priority,
-      requested_by=:requestedBy, note=:note, status=:status, task_id=:taskId,
+      requested_by=:requestedBy, assignee=:assignee, due_date=:day, note=:note, status=:status, task_id=:taskId,
       sort_order=:sortOrder, updated_at=:updatedAt
   `);
 
@@ -389,6 +398,7 @@ function replaceBoardSqlite({ tasks = [], complaints = [], shopping = [], recurr
         assignee: t.assignee || "",
         createdBy: t.createdBy || "",
         done: t.done ? 1 : 0,
+        completedOn: t.completedOn || null,
         photo: t.photo || null,
         moved: t.moved || null,
         recurring: t.recurring ? 1 : 0,
@@ -535,6 +545,8 @@ function replaceBoardSqlite({ tasks = [], complaints = [], shopping = [], recurr
           location: r.location,
           priority: r.priority,
           requestedBy: r.requestedBy || "",
+          assignee: r.assignee || "",
+          day: r.day || "",
           note: r.note || "",
           status: r.status === "moved" ? "moved" : "pending",
           taskId: r.taskId ? String(r.taskId) : null,

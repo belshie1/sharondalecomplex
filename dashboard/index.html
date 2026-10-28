@@ -133,9 +133,13 @@
             <input type="text" id="f-location" placeholder="Block / unit" required>
           </div>
           <div class="field">
-            <label for="f-day">Due date</label>
+            <label for="f-day">Due day this week</label>
             <select id="f-day"></select>
-            <span class="photo-hint">Leave as "No date" to park it in Unscheduled.</span>
+            <span class="photo-hint">Choose any date below for another week.</span>
+          </div>
+          <div class="field">
+            <label for="f-date">Any date</label>
+            <input type="date" id="f-date" aria-label="Schedule task on any date">
           </div>
           <div class="field">
             <label for="f-priority">Priority</label>
@@ -193,6 +197,12 @@
           </div>
           <p class="backlog-hint">Drag a task onto a day to schedule it</p>
           <div class="backlog-list" id="backlogList"></div>
+          <div class="backlog-head outside-week-head">
+            <h3>Other scheduled dates</h3>
+            <span class="backlog-count" id="outsideWeekCount">0</span>
+          </div>
+          <p class="backlog-hint outside-week-hint">Tasks scheduled outside this week</p>
+          <div class="backlog-list" id="outsideWeekList"></div>
         </aside>
 
         <div class="board-card">
@@ -279,6 +289,13 @@
           <input type="text" id="requestTitle" placeholder="Requested work, e.g. Replace broken gate remote" autocomplete="off" required>
           <input type="text" id="requestLocation" placeholder="Location, e.g. Block A - Unit 12" autocomplete="off" required>
           <input type="text" id="requestedBy" placeholder="Requested by (optional)" autocomplete="off">
+          <select id="requestAssignee" aria-label="Allocate task request to">
+            <option value="">Unassigned</option>
+          </select>
+          <label class="request-date-field" for="requestDate">
+            <span>Due date (optional)</span>
+            <input type="date" id="requestDate">
+          </label>
           <select id="requestPriority" aria-label="Priority">
             <option value="low">Low priority</option>
             <option value="medium" selected>Medium priority</option>
@@ -295,6 +312,8 @@
           <span>Requested work</span>
           <span>Priority</span>
           <span>Requested by</span>
+          <span>Allocated to</span>
+          <span>Due date</span>
           <span>Status</span>
           <span>Actions</span>
         </div>
@@ -402,15 +421,18 @@
     </div>
     <div class="modal-body">
       <div class="report-grid">
-        <div class="report-stat green"><div class="num" id="rCompleted">0</div><div class="lbl">Completed</div></div>
-        <div class="report-stat amber"><div class="num" id="rCarried">0</div><div class="lbl">Carried over</div></div>
-        <div class="report-stat coral"><div class="num" id="rOverdue">0</div><div class="lbl">Overdue</div></div>
+        <div class="report-stat green"><div class="num" id="rCompleted">0</div><div class="lbl">Completed last week</div></div>
+        <div class="report-stat amber"><div class="num" id="rCarried">0</div><div class="lbl">This week's tasks</div></div>
+        <div class="report-stat coral"><div class="num" id="rOverdue">0</div><div class="lbl">Unfinished tasks</div></div>
       </div>
       <div class="report-list">
-        <div class="r-row"><span>Total tasks logged</span><b id="rTotal">0</b></div>
+        <div class="r-row"><span>This week's tasks logged</span><b id="rTotal">0</b></div>
+        <div class="r-row"><span>Overdue tasks</span><b id="rOverdueCount">0</b></div>
+        <div class="r-row"><span>Tasks completed this week</span><b id="rCurrentCompleted">0</b></div>
         <div class="r-row"><span>Owner issues resolved</span><b id="rResolved">0</b></div>
         <div class="r-row"><span>Open issues remaining</span><b id="rOpenIssues">0</b></div>
       </div>
+      <div class="report-task-sections" id="reportTaskSections"></div>
       <div class="modal-actions">
         <button class="btn btn-ghost btn-sm" id="closeReport2">Close</button>
         <button class="btn btn-primary btn-sm" id="downloadReport">
@@ -447,8 +469,12 @@
         <input type="text" id="e-location" placeholder="Block / unit" required>
       </div>
       <div class="field">
-        <label for="e-day">Due date</label>
+        <label for="e-day">Due day this week</label>
         <select id="e-day"></select>
+      </div>
+      <div class="field">
+        <label for="e-date">Any date</label>
+        <input type="date" id="e-date" aria-label="Schedule task on any date">
       </div>
       <div class="field">
         <label for="e-priority">Priority</label>

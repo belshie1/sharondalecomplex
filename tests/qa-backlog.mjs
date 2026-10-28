@@ -77,6 +77,45 @@ export default async function run(page) {
     .locator(".backlog-item", { hasText: TITLE })
     .evaluate(el => el.innerText.includes("Priya Nair"));
 
+  // --- A task can be scheduled on an arbitrary future date -----------------
+  const FUTURE_TITLE = marker("Future dated task");
+  const futureDate = await page.evaluate(() => {
+    const date = new Date();
+    date.setDate(date.getDate() + 24);
+    return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") +
+      "-" + String(date.getDate()).padStart(2, "0");
+  });
+  await page.locator("#f-title").fill(FUTURE_TITLE);
+  await page.locator("#f-location").fill("Block Z");
+  await page.locator("#f-date").fill(futureDate);
+  await page.locator("#composer button[type=submit]").click();
+  await page.waitForTimeout(500);
+  const futureTask = page.locator("#outsideWeekList .backlog-item", { hasText: FUTURE_TITLE });
+  results.customDateTaskVisibleOutsideWeek = (await futureTask.count()) === 1;
+  results.customDateVisible = (await futureTask.locator(".b-meta").innerText())
+    .includes(String(Number(futureDate.slice(-2))));
+  results.customDateSavedToServer = (await serverBoard(page)).tasks
+    .some((task) => task.title === FUTURE_TITLE && task.day === futureDate);
+
+  const updatedDate = await page.evaluate((dateValue) => {
+    const date = new Date(dateValue + "T12:00:00");
+    date.setDate(date.getDate() + 14);
+    return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") +
+      "-" + String(date.getDate()).padStart(2, "0");
+  }, futureDate);
+  await futureTask.dispatchEvent("click");
+  results.customDateEditModalOpens = await page.locator("#editModal.open").count() === 1;
+  await page.locator("#e-date").fill(updatedDate);
+  results.customDateEditInputAcceptsDate = await page.locator("#e-date").inputValue() === updatedDate;
+  await page.locator("#editForm button[type=submit]").click();
+  await page.waitForTimeout(500);
+  results.customDateEditModalCloses = await page.locator("#editModal.open").count() === 0;
+  results.customDateCanBeEdited = (await page.locator("#outsideWeekList .backlog-item", {
+    hasText: FUTURE_TITLE
+  }).locator(".b-meta").innerText()).includes(String(Number(updatedDate.slice(-2))));
+  results.editedDateSavedToServer = (await serverBoard(page)).tasks
+    .some((task) => task.title === FUTURE_TITLE && task.day === updatedDate);
+
   // --- A completed task stays complete across a reload ---------------------
   const firstCard = page.locator("#boardBody .task-card").first();
   await firstCard.click();
