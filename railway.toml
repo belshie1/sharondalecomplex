@@ -15,7 +15,10 @@
 
 [build]
   builder = "DOCKERFILE"
-  dockerfilePath = "Dockerfile"
+  # Not "Dockerfile": a root Dockerfile makes Vercel treat the whole repo as a
+  # Container service, which breaks the static-dashboard + serverless-function
+  # deploy in vercel.json. See DEPLOY.md.
+  dockerfilePath = "Dockerfile.container"
 
 [deploy]
   startCommand = "node server/index.mjs"

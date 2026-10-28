@@ -2,6 +2,8 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
   "installCommand": "npm install",
+  "buildCommand": "node -e \"process.exit(0)\"",
+  "outputDirectory": "dashboard",
   "functions": {
     "api/index.mjs": {
       "includeFiles": "server/**"

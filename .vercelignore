@@ -11,3 +11,11 @@ deploy
 node_modules
 cloudflared*
 *.log
+
+# This repo's Dockerfile is for Railway, Fly and a plain VPS. Left in the upload,
+# Vercel's zero-config detection treats the project as a container service, which
+# conflicts with vercel.json (static dashboard + serverless function at
+# api/index.mjs) and makes `vercel link` fail with "services cannot be used with
+# functions/installCommand". deploymentTarget below keeps that explicit.
+Dockerfile
+.dockerignore

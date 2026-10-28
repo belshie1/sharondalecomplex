@@ -32,3 +32,7 @@ server-*.txt
 cloudflared*
 health.json
 tunnel.log
+.vercel
+# Vercel writes .env.local; .env.example is the committed template.
+.env.vercel
+!.env.example

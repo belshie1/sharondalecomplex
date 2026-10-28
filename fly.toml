@@ -11,7 +11,10 @@ app = "sharondale"
 primary_region = "jnb"
 
 [build]
-  dockerfile = "Dockerfile"
+  # Not "Dockerfile": a root Dockerfile makes Vercel treat the whole repo as a
+  # Container service, which breaks the static-dashboard + serverless-function
+  # deploy in vercel.json. See DEPLOY.md.
+  dockerfile = "Dockerfile.container"
 
 [env]
   PORT = "3000"
