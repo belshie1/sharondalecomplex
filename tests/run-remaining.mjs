@@ -13,6 +13,7 @@ import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
+import { OFF_SENTINEL } from "../server/env.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -109,19 +110,22 @@ console.log(`Starting backend on port ${PORT}...`);
 // The suites reset the board constantly, so they must never run against the
 // cloud: .env.local names a real Supabase project, and SHARONDALE_DB alone no
 // longer implies SQLite, so Supabase is switched off explicitly.
+// On Windows a variable set to "" is dropped from the child's environment, so
+// .env.local would hand the live SHARONDALE_TOKEN back and every write below
+// came back 401. The sentinel is what env.mjs reads as "deliberately off".
 const server = spawn("node", ["server/index.mjs"], {
   cwd: root,
   env: {
     ...process.env,
     PORT: String(PORT),
     SHARONDALE_DB: process.env.SHARONDALE_DB || ":memory:",
-    SUPABASE_URL: "",
-    SUPABASE_SECRET_KEY: "",
-    SUPABASE_SERVICE_ROLE_KEY: "",
-    SUPABASE_KEY: "",
-    SUPABASE_DB_URL: "",
+    SUPABASE_URL: OFF_SENTINEL,
+    SUPABASE_SECRET_KEY: OFF_SENTINEL,
+    SUPABASE_SERVICE_ROLE_KEY: OFF_SENTINEL,
+    SUPABASE_KEY: OFF_SENTINEL,
+    SUPABASE_DB_URL: OFF_SENTINEL,
     // Writes are open locally, exactly as for a visitor who entered the code.
-    SHARONDALE_TOKEN: "",
+    SHARONDALE_TOKEN: OFF_SENTINEL,
     SHARONDALE_LOGIN: "off",
   },
   stdio: ["ignore", "pipe", "pipe"],

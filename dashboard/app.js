@@ -264,6 +264,27 @@
   // with it too: without `people` here, adding someone only changed this tab,
   // and the next live-sync event replaced the list with the server's copy and
   // the new person vanished.
+  //
+  // Before the board has been read from the server every list still holds the
+  // sample from this file. Such a payload must never be saved: an unlocked board
+  // would replace real data with the sample. `boardLoaded` is set by the load
+  // step, so start() holds the write probe until that has happened.
+  //
+  // Some payloads are safe even before then, though, and the write-access probe
+  // relies on that: it holds only the people list (needed to check the caretaker
+  // codes) or nothing, and still gets the 401 that reveals a locked board.
+  function hasBoard() {
+    return boardLoaded === true;
+  }
+  function canPublishBoard(payload) {
+    if (hasBoard()) return true;
+    return (payload.tasks || []).length === 0 &&
+      (payload.complaints || []).length === 0 &&
+      (payload.shopping || []).length === 0 &&
+      (payload.recurring || []).length === 0 &&
+      (payload.phonebook || []).length === 0 &&
+      (payload.requests || []).length === 0;
+  }
   function boardPayload() {
     return {
       tasks: tasks,
@@ -284,6 +305,9 @@
   function writeCache(confirmedBoard) {
     if (backendMissing) return;
     if (needsToken || saveState === "locked") return;
+    // Never cache the sample in this file as "the last saved copy". Only a board
+    // that has been read from (or confirmed by) the server may be written.
+    if (!hasBoard()) return;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         version: 2,
@@ -312,6 +336,12 @@
   // that point still has to offer the prompt instead of throwing.
   function offerUnlock() {
     if (unlockOffered) return;
+    // The sign-in gate in login.js locks the whole page (z-index 9999). Opening
+    // this prompt underneath it meant a newcomer saw only "Enter your access
+    // code" while the caretaker code modal silently took focus behind the gate,
+    // and a wrong code had nowhere to be typed. Once signed in, the gate is gone
+    // from the DOM and this prompt works as intended.
+    if (document.getElementById("loginGate")) return;
     unlockOffered = true;
     const modal = document.getElementById("tokenModal");
     if (!modal) return;
@@ -335,6 +365,8 @@
   async function saveBoardData() {
     localChangeVersion++;
     const requestBody = JSON.stringify(boardPayload());
+    // Refuse to publish a board that was never read: see canPublishBoard().
+    if (!canPublishBoard(JSON.parse(requestBody))) return false;
     const confirmedBoard = JSON.parse(requestBody);
     setSaveState("saving");
     try {
@@ -460,6 +492,9 @@
       const board = await res.json();
       serverReachable = true;
       pendingSync = false;
+      // Read the server successfully: this board is now real data, so it may be
+      // cached and written back.
+      boardLoaded = true;
       return {
         tasks: (board.tasks || []).filter(isValidTask).map(normalizeTask),
         complaints: (board.complaints || []).filter(isValidComplaint),
@@ -2531,89 +2566,104 @@
     } catch (e) { /* optional */ }
 
     loadBoardData().then(function (board) {
-      // A page with no backend is labelled before anything else is rendered, so
-      // the sample board is never mistaken for saved data.
-      renderSyncBanner();
-      if (backendMissing) {
-        setSaveState("offline");
-        // Nothing on screen came from anywhere: it is the sample in this file.
-        // Start from a blank board instead, so there are no figures, tasks or
-        // "completed today" counts to mistake for real ones.
-        tasks.length = 0;
-        complaints.length = 0;
-        shopping.length = 0;
-        recurringTasks = [];
-        people = [];
-        phonebook = [];
-        requests = [];
-        currentUser = "";
-        fillStaffSelect(composerAssignee);
-        refreshPeopleSelects();
-        logActivity("No backend answered - nothing is being saved; this board is empty");
-        renderAll();
-        renderComplaints();
-        renderRequests();
-        renderShopping();
-        renderPeople();
-        renderPhonebook();
-        return;
-      }
-      if (board) {
-        boardLoaded = true;
-        tasks.length = 0;
-        board.tasks.forEach(function (t) { tasks.push(t); });
-        advanceTaskUid();
-        complaints.length = 0;
-        board.complaints.forEach(function (c) { complaints.push(c); });
-        shopping.length = 0;
-        board.shopping.forEach(function (i) { shopping.push(i); });
-        recurringTasks = board.recurring || [];
-        people = board.people || [];
-        phonebook = board.phonebook || [];
-        requests = board.requests || [];
-        // Start new ids above anything the server already holds, so a contact
-        // added in this session cannot collide with an existing one.
-        phonebookUid = phonebook.length + 1;
-        requestUid = requests.length + 1;
-        applyRecurringTasks();
-        logActivity(serverReachable
-          ? "Board loaded from the server"
-          : "Board loaded from the offline copy");
-      }
-      if (!people.some(function (p) { return p.name === currentUser; })) {
-        currentUser = people.length ? people[0].name : "";
-      }
+      finishBoot(board);
+    });
+  }
+
+  function finishBoot(board) {
+    // A page with no backend is labelled before anything else is rendered, so
+    // the sample board is never mistaken for saved data.
+    renderSyncBanner();
+    if (backendMissing) {
+      setSaveState("offline");
+      // Nothing on screen came from anywhere: it is the sample in this file.
+      // Start from a blank board instead, so there are no figures, tasks or
+      // "completed today" counts to mistake for real ones.
+      tasks.length = 0;
+      complaints.length = 0;
+      shopping.length = 0;
+      recurringTasks = [];
+      people = [];
+      phonebook = [];
+      requests = [];
+      currentUser = "";
+      fillStaffSelect(composerAssignee);
       refreshPeopleSelects();
-      // Render before saving, not after: seed.mjs already seeds a new database,
-      // so the tasks this pushes up are the sample board on screen. Drawing it
-      // first made it look like data; drawing it after the write confirmed only
-      // shows those rows if the server actually kept them.
+      logActivity("No backend answered - nothing is being saved; this board is empty");
       renderAll();
       renderComplaints();
       renderRequests();
       renderShopping();
       renderPeople();
       renderPhonebook();
-      // Seed the server on a first ever run so a new deployment is not empty.
-      // Only ever with the sample still in place: an empty board that came from
-      // the server is the caretaker's board, not a new deployment.
-      if (serverReachable && !boardLoaded &&
-          tasks.length === 0 && complaints.length === 0 && shopping.length === 0) {
-        saveBoardData();
-      }
-      setSaveState(serverReachable ? "saved" : "offline");
-      // Establishing read access does not prove write access, so probe with a
-      // no-op save. If the server wants a code, the chip says so rather than the
-      // caretaker discovering it when their first change appears to vanish.
-      if (serverReachable) probeWriteAccess();
-      watchForOtherDevices();
-    });
+      return;
+    }
+    if (board) {
+      boardLoaded = true;
+      tasks.length = 0;
+      board.tasks.forEach(function (t) { tasks.push(t); });
+      advanceTaskUid();
+      complaints.length = 0;
+      board.complaints.forEach(function (c) { complaints.push(c); });
+      shopping.length = 0;
+      board.shopping.forEach(function (i) { shopping.push(i); });
+      recurringTasks = board.recurring || [];
+      people = board.people || [];
+      phonebook = board.phonebook || [];
+      requests = board.requests || [];
+      // Start new ids above anything the server already holds, so a contact
+      // added in this session cannot collide with an existing one.
+      phonebookUid = phonebook.length + 1;
+      requestUid = requests.length + 1;
+      applyRecurringTasks();
+      logActivity(serverReachable
+        ? "Board loaded from the server"
+        : "Board loaded from the offline copy");
+    }
+    if (!people.some(function (p) { return p.name === currentUser; })) {
+      currentUser = people.length ? people[0].name : "";
+    }
+    refreshPeopleSelects();
+    // Drawing the sample first made it look like data, so the board is drawn
+    // once, from what the server actually returned.
+    renderAll();
+    renderComplaints();
+    renderRequests();
+    renderShopping();
+    renderPeople();
+    renderPhonebook();
+
+    setSaveState(serverReachable ? "saved" : "offline");
+    // Establishing read access does not prove write access, so probe with a
+    // no-op save. If the server wants a code, the chip says so rather than the
+    // caretaker discovering it when their first change appears to vanish.
+    if (serverReachable) probeWriteAccess();
+    // A load that failed leaves the sample on screen; if the server answers
+    // later, the live-sync read is what makes this a real board. Probe write
+    // access after it, or the caretaker only finds out at their first change.
+    if (!hasBoard()) onceBoardLoaded(probeWriteAccess);
+    watchForOtherDevices();
+  }
+
+  const boardLoadedWaiters = [];
+  function onceBoardLoaded(callback) {
+    if (hasBoard()) callback();
+    else boardLoadedWaiters.push(callback);
+  }
+  function notifyBoardLoaded() {
+    while (boardLoadedWaiters.length) {
+      try { boardLoadedWaiters.shift()(); } catch (e) { /* one failure must not stop the rest */ }
+    }
   }
 
   async function probeWriteAccess() {
+    // A board still showing the sample has not been read yet, so only a payload
+    // without sample rows may be sent - the server answers 401 to that just the
+    // same, which is all this probe needs to learn.
     if (!serverReachable) return;
     try {
-      const res = await api("/board", { method: "PUT", body: JSON.stringify(boardPayload()) });
+      const payload = hasBoard() ? boardPayload() : { people: people };
+      const res = await api("/board", { method: "PUT", body: JSON.stringify(payload) });
       if (res.status === 401) {
         needsToken = true;
         setSaveState("locked");
@@ -2640,13 +2690,19 @@
     });
   }
   function currentBoardSnapshot() {
+    // Nothing read from the server yet: there is no board to compare against, so
+    // say so with a value no server answer can equal (a remote read must still
+    // be allowed to fill the page).
+    if (!hasBoard()) return "unloaded";
     return boardSnapshot(boardPayload());
   }
   function applyRemoteBoard(board) {
     if (!board || pendingSync || localWriteRejected || saveState === "saving") return;
-    if (boardSnapshot(board) === currentBoardSnapshot()) return;
-
+    // This also fills a board whose first load failed, so without it a success
+    // here would leave hasBoard() false and every later save blocked.
     boardLoaded = true;
+    notifyBoardLoaded();
+    if (boardSnapshot(board) === currentBoardSnapshot()) return;
     tasks.length = 0;
     (board.tasks || []).filter(isValidTask).map(normalizeTask)
       .forEach(function (task) { tasks.push(task); });
