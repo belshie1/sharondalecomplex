@@ -58,7 +58,19 @@ function run(command, args, options = {}) {
     let err = "";
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
-    child.on("close", (code) => resolve({ code, out, err }));
+    let timer = null;
+    let timedOut = false;
+    if (options.timeoutMs) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        err += `\nTIMEOUT after ${options.timeoutMs}ms - suite killed`;
+        try { child.kill(); } catch { /* already gone */ }
+      }, options.timeoutMs);
+    }
+    child.on("close", (code) => {
+      if (timer) clearTimeout(timer);
+      resolve({ code: timedOut ? "TIMEOUT" : code, out, err });
+    });
   });
 }
 
@@ -149,7 +161,7 @@ const server = spawn("node", ["server/index.mjs"], {
     // Writes are protected in production tests; locally the suites write
     // directly, exactly as a visitor who has entered the code would.
     SHARONDALE_TOKEN: OFF_SENTINEL,
-    SHARONDALE_LOGIN: "off",
+    SHARONDALE_LOGIN: OFF_SENTINEL,
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -181,7 +193,9 @@ const failures = [];
 for (const suite of SUITES) {
   const scriptPath = path.join(root, "tests", suite);
   const started = Date.now();
-  const { code, out, err } = await run("node", [runner, BASE, "--script", scriptPath]);
+  // A suite that hangs must not stall the whole run: every remaining suite then
+  // never runs and the summary is never printed, which reads as "all green".
+  const { code, out, err } = await run("node", [runner, BASE, "--script", scriptPath], { timeoutMs: 120000 });
   const ms = Date.now() - started;
   const json = extractJson(out);
 

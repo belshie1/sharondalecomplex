@@ -20,6 +20,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// First import on purpose: env.mjs applies .env.local AND rewrites its
+// OFF_SENTINEL switch-offs before anything below is read. db.mjs imports it too,
+// but a nested import runs only once this file's own imports are done, which is
+// too late for the settings immediately below.
+import { OFF_VALUE } from "./env.mjs";
 import { storage, initStorage, pingStorage, storageDescription, closeStorage, usingSupabaseStorage } from "./db.mjs";
 import { seedIfEmpty } from "./seed.mjs";
 import { login, lockedOut, setCode, listCodes, sessionFromRequest } from "./access.mjs";
@@ -29,7 +34,7 @@ import { login, lockedOut, setCode, listCodes, sessionFromRequest } from "./acce
 const REQUIRE_LOGIN = process.env.SHARONDALE_REQUIRE_LOGIN === "1";
 // Automated browser tests set this to skip the sign-in screen. Never set it in
 // production.
-const LOGIN_OFF = process.env.SHARONDALE_LOGIN === "off";
+const LOGIN_OFF = process.env.SHARONDALE_LOGIN === OFF_VALUE;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -42,7 +47,9 @@ const host = process.env.HOST || "0.0.0.0";
 // Requests carrying this token may write. When it is unset the API stays open,
 // which is convenient locally and wrong on the public internet -- the startup
 // banner says so loudly.
-const WRITE_TOKEN = process.env.SHARONDALE_TOKEN || "";
+// A switched-off token reads as OFF_VALUE, not "", so only a real empty value
+// counts as "no token".
+const WRITE_TOKEN = process.env.SHARONDALE_TOKEN === OFF_VALUE ? "" : (process.env.SHARONDALE_TOKEN || "");
 
 // Which SQLite file is in use. Reported by /api/health so a deployment can be
 // checked from outside: on a host with an ephemeral filesystem the board silently

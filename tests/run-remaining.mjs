@@ -125,8 +125,10 @@ const server = spawn("node", ["server/index.mjs"], {
     SUPABASE_KEY: OFF_SENTINEL,
     SUPABASE_DB_URL: OFF_SENTINEL,
     // Writes are open locally, exactly as for a visitor who entered the code.
+    // SHARONDALE_LOGIN must use the sentinel too: .env.local turns the sign-in
+    // gate on, and its full-page overlay swallowed every click the suites make.
     SHARONDALE_TOKEN: OFF_SENTINEL,
-    SHARONDALE_LOGIN: "off",
+    SHARONDALE_LOGIN: OFF_SENTINEL,
   },
   stdio: ["ignore", "pipe", "pipe"],
 });

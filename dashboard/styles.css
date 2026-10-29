@@ -1098,7 +1098,11 @@
     display:none; align-items:center; justify-content:center; z-index:100;
     padding:20px;
   }
-  .modal-overlay.open{display:flex; animation:fadeUp 0.2s ease both;}
+  .modal-overlay.open{display:flex; animation:overlayIn 0.2s ease both;}
+  /* The fadeUp keyframes move the overlay itself, and a moved element is the
+     containing block for its fixed-position children - so it animated with the
+     modal, not behind it. Fade the backdrop in place instead. */
+  @keyframes overlayIn{ from{opacity:0;} to{opacity:1;} }
   .modal{
     background:var(--card);
     border-radius:var(--radius-lg);

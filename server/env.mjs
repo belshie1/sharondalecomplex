@@ -23,6 +23,8 @@ const root = path.resolve(here, "..");
 
 /** Value a script passes to say "this key is deliberately off", even on Windows. */
 export const OFF_SENTINEL = "__off__";
+/** What a switched-off key reads as after loadEnvFiles() has run. */
+export const OFF_VALUE = "off";
 
 export function parseEnv(text) {
   const out = {};
@@ -87,9 +89,12 @@ export function loadEnvFiles(files = [".env.local", ".env"]) {
     }
     loaded.push(name);
   }
-  // Hand the caller the switch-off it asked for: "" everywhere, which is what
-  // every reader of process.env already treats as not configured.
-  for (const key of offKeys) process.env[key] = "";
+  // Hand the caller the switch-off it asked for: the sentinel is rewritten to a
+  // value reader of process.env treats as not configured. It CANNOT be the empty
+  // string: Node re-reads the real OS environment lazily, so `process.env.X = ""`
+  // on Windows (where the OS has no such variable at all) resolves back to
+  // undefined on the next read - the switch-off silently came undone.
+  for (const key of offKeys) process.env[key] = OFF_VALUE;
   return loaded;
 }
 
