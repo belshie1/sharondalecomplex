@@ -338,12 +338,23 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === "/api/board" && req.method === "PUT") {
-    if (WRITE_TOKEN) {
-      const supplied = req.headers["x-sharondale-token"] || "";
-      if (supplied !== WRITE_TOKEN) {
-        return sendJson(res, 401, { error: "Missing or incorrect write token." });
-      }
+    // A signed-in session may write too. The dashboard's sign-in gate puts the
+    // session in Authorization and nothing in x-sharondale-token, so demanding
+    // the write token alone meant signing in successfully changed nothing: the
+    // first save came back 401, and the code prompt's "unlock" was a write
+    // token the gate never asked anyone for.
+    const session = sessionFromRequest(req);
+
+    // A session replaces the write token as proof; it does not replace the
+    // rules. Keeping authentication and validation separate is what a signed-in
+    // client needs: without this branch it skipped every check below and could
+    // store a board the token-protected API would have rejected.
+    if (!session && !WRITE_TOKEN) {
+      /* no credential configured: writes are open, as the startup banner warns */
+    } else if (!session && (req.headers["x-sharondale-token"] || "") !== WRITE_TOKEN) {
+      return sendJson(res, 401, { error: "Missing or incorrect write token." });
     }
+
     let body;
     try {
       body = JSON.parse(await readBody(req));

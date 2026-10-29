@@ -22,6 +22,18 @@ const root = path.resolve(here, "..");
 const PORT = Number(process.env.PORT) || 3123;
 const BASE = `http://localhost:${PORT}/`;
 
+// qa-session-write.mjs signs in as this person on the throwaway test board, to
+// prove a session can save. It is created below, on that board only, and is
+// neither a real caretaker nor the admin code. Changing it must not change the
+// write token's meaning: the suites still need writes open for everyone else.
+const QA_SESSION_NAME = process.env.QA_SESSION_NAME || "QA Session";
+const QA_SESSION_CODE = process.env.QA_SESSION_CODE || "1357";
+const ADMIN_CODE = process.env.SHARONDALE_ADMIN_CODE || "123454321";
+if (QA_SESSION_CODE === ADMIN_CODE) {
+  console.error("QA_SESSION_CODE must not be the admin code: the suite checks it is NOT the admin.");
+  process.exit(1);
+}
+
 const SUITES = [
   "qa.mjs",
   "qa-edit-assign.mjs",
@@ -35,6 +47,7 @@ const SUITES = [
   "qa-complaint-delete.mjs",
   "qa-backend.mjs",
   "qa-board-integrity.mjs",
+  "qa-session-write.mjs",
   "qa-static-host.mjs",
 ];
 
@@ -186,6 +199,45 @@ if (!(await waitForServer())) {
 }
 console.log("Backend is healthy.\n");
 
+// The code belongs to the board, not the environment, so it is set through the
+// admin API exactly as the admin screen would. A suite that resets the board
+// must keep the roster, so the person survives every reset below.
+async function seedSessionCode() {
+  const loginRes = await fetch(BASE + "api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: ADMIN_CODE }),
+  });
+  const admin = await loginRes.json().catch(() => ({}));
+  if (!admin.token) throw new Error("Admin sign-in failed: " + (admin.error || loginRes.status));
+
+  const board = await (await fetch(BASE + "api/board")).json();
+  if ((board.people || []).some((p) => p.name === QA_SESSION_NAME)) return;
+  board.people = (board.people || []).concat([{ id: "qa-session-person", name: QA_SESSION_NAME, role: "QA" }]);
+  const put = await fetch(BASE + "api/board", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(board),
+  });
+  if (!put.ok) throw new Error("Could not add the QA session person: HTTP " + put.status);
+
+  const codeRes = await fetch(BASE + "api/codes", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + admin.token },
+    body: JSON.stringify({ name: QA_SESSION_NAME, code: QA_SESSION_CODE }),
+  });
+  const body = await codeRes.json().catch(() => ({}));
+  if (!codeRes.ok || body.error) throw new Error("Could not set the QA session code: " + (body.error || codeRes.status));
+}
+try {
+  await seedSessionCode();
+} catch (error) {
+  console.error("Could not prepare the sign-in check: " + error.message);
+  cleanup();
+  process.exit(1);
+}
+console.log(`Sign-in check uses \"${QA_SESSION_NAME}\" with code ${QA_SESSION_CODE}.\n`);
+
 let totalPass = 0;
 let totalFail = 0;
 const failures = [];
@@ -195,7 +247,12 @@ for (const suite of SUITES) {
   const started = Date.now();
   // A suite that hangs must not stall the whole run: every remaining suite then
   // never runs and the summary is never printed, which reads as "all green".
-  const { code, out, err } = await run("node", [runner, BASE, "--script", scriptPath], { timeoutMs: 120000 });
+  const { code, out, err } = await run("node", [runner, BASE, "--script", scriptPath], {
+    timeoutMs: 120000,
+    // Handed to every suite and harmless to all but qa-session-write.mjs, which
+    // must know the person the runner seeded on this board.
+    env: { QA_SESSION_NAME, QA_SESSION_CODE },
+  });
   const ms = Date.now() - started;
   const json = extractJson(out);
 
@@ -212,6 +269,18 @@ for (const suite of SUITES) {
   totalFail += fail;
   if (fail > 0) failures.push(suite);
   console.log(`${fail === 0 ? "PASS" : "FAIL"}  ${suite}  ${pass} passed, ${fail} failed  (${ms}ms)`);
+  // Name the failing keys: a bare count says something is wrong but not what,
+  // and the reason is often in a sibling value (a status, an error message).
+  // Context keys are reported alongside: a failure is usually explained by a
+  // status or message its sibling assertion recorded.
+  const failed = Object.entries(json).filter(([, value]) => value === false).map(([key]) => key);
+  for (const key of failed) console.log(`      failed: ${key}`);
+  if (failed.length) {
+    const context = Object.entries(json).filter(([key, value]) =>
+      !failed.includes(key) && (typeof value === "string" || typeof value === "number")
+    );
+    if (context.length) console.log("      context: " + context.map(([k, v]) => `${k}=${v}`).join(", "));
+  }
 }
 
 cleanup();

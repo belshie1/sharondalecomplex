@@ -201,6 +201,11 @@
   let needsToken = false;
   let serverReachable = null; // null = unknown yet
   let pendingSync = false;    // local changes not yet confirmed by the server
+  // A change refused because this browser has no write access - the caretaker
+  // signed in at the gate, but the access-code prompt has not been answered in
+  // this browser yet. Kept so answering the prompt sends the board instead of
+  // it sitting unsaved until the next unrelated click.
+  let rejectedWritePending = false;
   let syncTimer = null;
   let localChangeVersion = 0;
   // True from the moment the API has been tried and found to be a static host -
@@ -379,6 +384,7 @@
         // network problem, so it gets its own state and the unlock prompt.
         needsToken = true;
         localWriteRejected = true;
+        rejectedWritePending = true;
         serverReachable = true;
         pendingSync = false;
         setSaveState("locked");
@@ -466,6 +472,9 @@
   }
 
   async function syncNow() {
+    // Re-sending into a known refusal only flips the chip between "Saving..."
+    // and "Locked": wait for the code, which sends the board itself.
+    if (needsToken) return false;
     const ok = await saveBoardData();
     if (ok && pendingSync === false) renderSyncBanner();
     return ok;
@@ -640,6 +649,9 @@
       pendingSync = false;
       writeCache(confirmedBoard);
       setSaveState("saved");
+      // The PUT above sent the whole current board, so any change refused a
+      // moment ago went with it and no longer needs sending again.
+      rejectedWritePending = false;
       return true;
     } catch (error) {
       writeToken = previous;
