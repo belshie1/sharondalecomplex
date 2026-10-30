@@ -49,7 +49,7 @@ const SUITES = [
   "qa-board-integrity.mjs",
   "qa-session-write.mjs",
   "qa-login-gate.mjs",
-
+  "qa-working-as-lock.mjs",
   "qa-static-host.mjs",
 ];
 

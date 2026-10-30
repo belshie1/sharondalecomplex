@@ -8,8 +8,11 @@
 
   try { session = JSON.parse(sessionStorage.getItem(KEY) || "null"); } catch (e) { session = null; }
 
-  // A person works as themselves: pin the identity before app.js reads it.
-  var locked = !!(session && !session.admin);
+  // Anyone signed in works as themselves: pin the identity before app.js reads
+  // it. The admin code is a session too, so it is locked as well rather than
+  // re-opening the free choice it had. Nobody signed in (a board with the gate
+  // switched off) keeps the old behaviour and can pick from the roster.
+  var locked = !!session;
   if (locked) {
     try { localStorage.setItem("sharondaleCurrentUser", session.name); } catch (e) { /* optional */ }
   }
@@ -74,6 +77,10 @@
       "#signOutBtn{position:fixed;top:10px;right:14px;z-index:900}" +
       ".code-set{display:inline-flex;gap:4px;align-items:center;margin-right:8px}" +
       (locked ? ".act-assign-me{display:none!important}" : "") +
+      // "Working as" is a label for a signed-in person, not a control. app.js
+      // re-renders the select's options on every roster change, so disabling the
+      // element once at boot was undone by the next re-render; the style holds.
+      (locked ? ".user-select{pointer-events:none;appearance:none;cursor:default;opacity:1}" : "") +
       ".code-set input{width:72px;text-align:center;letter-spacing:.2em;padding:4px;border:1px solid var(--line);border-radius:6px}";
     document.head.appendChild(s);
   }
@@ -193,6 +200,27 @@
     });
   }
 
+  /**
+   * Make "Working as" follow the signed-in person and nothing else.
+   *
+   * Setting `disabled` once was not enough: app.js re-renders the select's
+   * options (refreshPeopleSelects) whenever the roster changes, which replaces
+   * its contents and puts the free choice back. Watching for that re-render
+   * keeps it locked; the style added in addStyles() keeps it from looking like a
+   * control that nobody can operate.
+   */
+  function lockWorkingAs(name) {
+    var select = document.getElementById("currentUserSelect");
+    if (!select) return;
+    select.disabled = true;
+    select.setAttribute("aria-disabled", "true");
+    select.title = "You are signed in as " + name;
+    new MutationObserver(function () {
+      select.disabled = true;
+      select.value = name;
+    }).observe(select, { childList: true });
+  }
+
   addStyles();
   document.addEventListener("DOMContentLoaded", function () {
     if (!session) { showGate(); return; }
@@ -200,11 +228,7 @@
     out.addEventListener("click", signOut);
     document.body.appendChild(out);
     if (locked) {
-      var select = document.getElementById("currentUserSelect");
-      if (select) {
-        select.disabled = true;
-        select.title = "You are signed in as " + session.name;
-      }
+      lockWorkingAs(session.name);
     }
     if (session.admin) setupAdmin();
   });
