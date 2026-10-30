@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server/index.mjs",
     "serve": "node tests/serve.mjs",
-    "test": "node tests/run-all.mjs",
+    "test": "node tests/run-all.mjs --no-login",
     "verify:deploy": "node tests/verify-deploy.mjs"
   },
   "engines": {

@@ -106,27 +106,33 @@ export async function resetBoard(page, { reload = true } = {}) {
       null,
       { timeout: 20000 }
     );
-    // The unlock prompt is offered a moment after boot. Suites run against a
-    // board with no access code, so it only ever gets in the way, but it must be
-    // dismissed as its own step: doing it inside the wait above can run before
-    // the prompt has opened, and then its overlay swallows every later click.
-    await page
-      .locator("#tokenModal.open")
-      .waitFor({ state: "visible", timeout: 5000 })
-      .catch(() => { /* a board with no code does not prompt at all */ });
+    // A gated backend (the deployed site, and the local test board whenever a
+    // person has a sign-in code) puts up a full-page sign-in overlay. Every
+    // suite then ran behind it and asserted on a page nobody could touch. Sign
+    // in as the QA person the runner seeded, if the gate is up at all, so the
+    // suites start where a caretaker does.
+    // Nothing may run in parallel here: signing in from a background promise
+    // navigates the page out from under whatever else is still awaiting on it.
+    await signInIfGated(page).catch(() => null);
+    // The unlock prompt is offered a moment after boot. It only gets in the way
+    // here, so it is dismissed whenever it turns up, including inside the sign-in
+    // reload - a check made only once, at a fixed moment, missed it.
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const dismissed = await page.evaluate(() => {
+        const modal = document.getElementById("tokenModal");
+        const cancel = document.getElementById("cancelToken");
+        if (!modal || !modal.classList.contains("open")) return false;
+        if (cancel) cancel.click();
+        return true;
+      }).catch(() => null);
+      if (!dismissed) break;
+      await page.waitForTimeout(100);
+    }
     await page.evaluate(() => {
-      const modal = document.getElementById("tokenModal");
-      if (modal && modal.classList.contains("open")) {
-        document.getElementById("cancelToken").click();
-      }
       // Every suite starts on the calendar, so one can never inherit the tab
       // another left behind. dispatchEvent is the path the suites use too.
       document.querySelector('#mainNav .nav-item[data-view="tasks"]').dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    await page
-      .locator("#tokenModal.open")
-      .waitFor({ state: "detached", timeout: 5000 })
-      .catch(() => {});
     await page.waitForTimeout(300);
   }
 }
@@ -142,4 +148,56 @@ export async function serverBoard(page) {
 /** A unique marker so repeated runs never collide with earlier data. */
 export function marker(prefix) {
   return prefix + " " + Date.now().toString(36) + Math.floor(Math.random() * 1000);
+}
+
+/**
+ * Sign in at the gate if the page is showing one.
+ *
+ * The gate removes itself when /api/login says there is nobody to sign in as, so
+ * an ungated local board is left alone. A gated one is signed in as the QA person
+ * run-all.mjs seeded (QA_SESSION_NAME / QA_SESSION_CODE), which is what a
+ * caretaker does before touching the board.
+ *
+ * Returns "signed-in", "not-gated" or a reason, so a suite that cares can say so.
+ */
+export async function signInIfGated(page) {
+  const gate = page.locator("#loginGate");
+  // The gate is added on DOMContentLoaded. Waiting for it to be *attached* piles
+  // two delays together: the first eight seconds go on a gate that may never
+  // come, and a real one then appears after this function has given up on it - a
+  // suite's first click met its full-page dialog instead of the board. Ask the
+  // server first, and only wait this long when it says a gate is coming.
+  const announced = await page
+    .evaluate(() => fetch("/api/login").then((r) => r.json()).then((c) => !!(c && c.gate)).catch(() => null))
+    .catch(() => null);
+  await gate.waitFor({ state: "attached", timeout: announced ? 8000 : 250 }).catch(() => null);
+  if (!(await gate.count())) return "not-gated";
+
+  const name = process.env.QA_SESSION_NAME || "QA Session";
+  const code = process.env.QA_SESSION_CODE || "1357";
+  await page.locator("#loginGate #loginCode").fill(code);
+  await page.locator("#loginGate button[type=submit]").click();
+  // Success reloads the document; failure leaves the gate up with a message.
+  // Waiting for the element, not for a count taken before the reload, is what
+  // notices the new document: the gate is only gone once that document boots.
+  await gate
+    .waitFor({ state: "detached", timeout: 30000 })
+    .catch(() => null);
+  await page.waitForFunction(() => !document.getElementById("loginGate"), null, { timeout: 5000 }).catch(() => null);
+  if (!(await gate.count())) {
+    // A fresh document after the reload: wait for it to finish booting.
+    await page
+      .waitForFunction(
+        () => document.readyState === "complete" &&
+          document.querySelectorAll("#boardBody .task-card").length > 0,
+        null,
+        { timeout: 20000 }
+      )
+      .catch(() => null);
+    return "signed-in";
+  }
+  const error = await page.evaluate(
+    () => (document.getElementById("loginError") || {}).innerText || ""
+  ).catch(() => "");
+  return `gate stayed up (${name}): ${String(error).slice(0, 80)}`;
 }

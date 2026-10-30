@@ -6,10 +6,21 @@
  */
 import crypto from "node:crypto";
 import { storage } from "./db.mjs";
+import { DEFAULT_ADMIN_CODE } from "./env.mjs";
 
-export const ADMIN_CODE = process.env.SHARONDALE_ADMIN_CODE || "123454321";
-const SECRET = process.env.SHARONDALE_SESSION_SECRET || crypto.createHash("sha256").update("sharondale-session:" + ADMIN_CODE).digest("hex");
+export const ADMIN_CODE = process.env.SHARONDALE_ADMIN_CODE || DEFAULT_ADMIN_CODE;
+// One secret for issuers and verifiers alike. It used to be derived from the
+// admin code independently in each module that needed it, so two processes - or
+// two builds of one serverless function - could disagree on it and every
+// session the gate issued would be rejected by the API as unsigned. A shared
+// derivation function cannot drift, and a deployment can still pin a secret.
+const SECRET = process.env.SHARONDALE_SESSION_SECRET || sessionSecretFor(ADMIN_CODE);
 const SESSION_MS = 12 * 60 * 60 * 1000;
+
+/** The one derivation of the default session secret. Exported so nothing re-derives it. */
+export function sessionSecretFor(adminCode) {
+  return crypto.createHash("sha256").update("sharondale-session:" + adminCode).digest("hex");
+}
 
 const sign = (payload) => crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
 

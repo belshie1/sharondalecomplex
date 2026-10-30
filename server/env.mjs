@@ -26,6 +26,14 @@ export const OFF_SENTINEL = "__off__";
 /** What a switched-off key reads as after loadEnvFiles() has run. */
 export const OFF_VALUE = "off";
 
+/**
+ * The built-in admin code, in its own module because two files must agree on it:
+ * the sign-in code (access.mjs) and the session key derived from it. When each
+ * spelled the fallback out separately, a change to one silently invalidated
+ * every session the other issued.
+ */
+export const DEFAULT_ADMIN_CODE = "123454321";
+
 export function parseEnv(text) {
   const out = {};
   for (const raw of String(text).split(/\r?\n/)) {

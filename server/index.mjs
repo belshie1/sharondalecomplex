@@ -24,17 +24,21 @@ import { fileURLToPath } from "node:url";
 // OFF_SENTINEL switch-offs before anything below is read. db.mjs imports it too,
 // but a nested import runs only once this file's own imports are done, which is
 // too late for the settings immediately below.
-import { OFF_VALUE } from "./env.mjs";
+import { OFF_SENTINEL, OFF_VALUE } from "./env.mjs";
 import { storage, initStorage, pingStorage, storageDescription, closeStorage, usingSupabaseStorage } from "./db.mjs";
 import { seedIfEmpty } from "./seed.mjs";
-import { login, lockedOut, setCode, listCodes, sessionFromRequest } from "./access.mjs";
+import { ADMIN_CODE, login, lockedOut, setCode, listCodes, sessionFromRequest } from "./access.mjs";
 
 // When set, board reads and writes need a signed-in session (or the write
 // token). Off by default so existing clients and tests keep working.
 const REQUIRE_LOGIN = process.env.SHARONDALE_REQUIRE_LOGIN === "1";
 // Automated browser tests set this to skip the sign-in screen. Never set it in
 // production.
-const LOGIN_OFF = process.env.SHARONDALE_LOGIN === OFF_VALUE;
+// "off" is the documented value; the sentinel counts too, so a script that
+// switches the gate off cannot depend on which spelling survives Windows' lack
+// of an empty environment variable.
+const LOGIN_SETTING = String(process.env.SHARONDALE_LOGIN || "").trim().toLowerCase();
+const LOGIN_OFF = LOGIN_SETTING === OFF_VALUE || process.env.SHARONDALE_LOGIN === OFF_SENTINEL;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -263,7 +267,26 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === "/api/login" && req.method === "GET") {
-    return sendJson(res, 200, { gate: !LOGIN_OFF });
+    // The page needs to know whether signing in can succeed, so it only shows
+    // the gate when somebody actually has a code. A visible gate on a board
+    // where every code returns "wrong code" is worse than no gate: it looks
+    // like the right code is being rejected. A switch-off (LOGIN_OFF) is a
+    // deliberate "no sign-in here" and wins over both.
+    // `why` is for diagnostics only (nothing secret): a board whose gate is off
+    // when it should be up says which setting decided that.
+    if (LOGIN_OFF) return sendJson(res, 200, { gate: false, why: "SHARONDALE_LOGIN is off" });
+    let anyoneCanSignIn = !!ADMIN_CODE;
+    let why = anyoneCanSignIn ? "the admin code is set" : "";
+    if (!anyoneCanSignIn) {
+      try {
+        anyoneCanSignIn = (await storage.readAccess()).length > 0;
+        why = anyoneCanSignIn ? "a person has a code" : "nobody has a code";
+      } catch (e) {
+        anyoneCanSignIn = false;
+        why = "codes could not be read: " + e.message;
+      }
+    }
+    return sendJson(res, 200, { gate: anyoneCanSignIn, why });
   }
 
   if (pathname === "/api/login" && req.method === "POST") {

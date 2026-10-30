@@ -14,6 +14,11 @@
     try { localStorage.setItem("sharondaleCurrentUser", session.name); } catch (e) { /* optional */ }
   }
 
+  // The sign-in POST itself answers 401 for a wrong code, and the gate's own
+  // handler shows that message. Signing out here instead reloaded the page and
+  // lost it, leaving a blank prompt that looked like a sign-in that did not
+  // stick: /api/login is the one API path this wrapper must not police.
+  var LOGIN_PATH = API + "/login";
   // Every API call carries the session, so app.js needs no changes.
   var nativeFetch = window.fetch.bind(window);
   window.fetch = function (input, init) {
@@ -23,7 +28,7 @@
       init.headers = Object.assign({}, init.headers, { Authorization: "Bearer " + session.token });
     }
     return nativeFetch(input, init).then(function (res) {
-      if (res.status === 401 && session && url.indexOf(API + "/") === 0) signOut();
+      if (res.status === 401 && session && url.indexOf(API + "/") === 0 && url.indexOf(LOGIN_PATH) !== 0) signOut();
       return res;
     });
   };
@@ -40,10 +45,28 @@
     return node;
   }
 
+  /** Take the gate down and give the page back its normal state. */
+  function removeGate(gate) {
+    gate.remove();
+    document.body.classList.remove("gate-up");
+    document.documentElement.classList.remove("gate-up");
+    var shell = document.querySelector(".app-shell");
+    if (shell) {
+      shell.removeAttribute("aria-hidden");
+      shell.removeAttribute("inert");
+    }
+  }
+
   function addStyles() {
     var s = el("style");
+    // Top and bottom are written out rather than left to inset:0, and the page is
+    // locked while the gate is up. The gate used to cover only the first screen:
+    // it sits on <body>, which on a long dashboard can be taller than one screen,
+    // so scrolling revealed the caretaker board behind a page nobody had signed
+    // in to.
     s.textContent =
-      "#loginGate{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:var(--canvas,#F5F1E8)}" +
+      "html.gate-up,body.gate-up{overflow:hidden}" +
+      "#loginGate{position:fixed;top:0;right:0;bottom:0;left:0;z-index:9999;overflow:auto;display:flex;align-items:center;justify-content:center;padding:20px;box-sizing:border-box;background:var(--canvas,#F5F1E8)}" +
       "#loginGate form{background:var(--card,#FFFDF8);padding:32px;border-radius:var(--radius-lg,20px);box-shadow:var(--shadow-lg);width:min(92vw,340px);text-align:center}" +
       "#loginGate h1{font-size:22px;margin:0 0 6px}#loginGate p{margin:0 0 18px;color:var(--muted,#69736B);font-size:14px}" +
       "#loginCode{width:100%;box-sizing:border-box;font-size:28px;letter-spacing:.5em;text-align:center;padding:12px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px}" +
@@ -57,6 +80,15 @@
 
   function showGate() {
     var gate = el("div", { id: "loginGate", role: "dialog", "aria-modal": "true", "aria-label": "Sign in" });
+    // A dialog has to tell everything behind it is inert. Without this a screen
+    // reader walks the whole dashboard while the visitor is entering a code.
+    var shell = document.querySelector(".app-shell");
+    if (shell) {
+      shell.setAttribute("aria-hidden", "true");
+      shell.setAttribute("inert", "");
+    }
+    if (document.body) document.body.classList.add("gate-up");
+    document.documentElement.classList.add("gate-up");
     var form = el("form", { autocomplete: "off" });
     form.appendChild(el("h1", {}, "Sharondale"));
     form.appendChild(el("p", {}, "Enter your access code"));
@@ -75,8 +107,8 @@
     nativeFetch(API + "/login").then(function (res) {
       return res.json();
     }).then(function (cfg) {
-      if (cfg && cfg.gate === false) gate.remove();
-    }).catch(function () { gate.remove(); });
+      if (cfg && cfg.gate === false) removeGate(gate);
+    }).catch(function () { removeGate(gate); });
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();

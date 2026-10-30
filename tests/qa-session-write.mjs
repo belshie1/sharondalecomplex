@@ -110,11 +110,13 @@ export default async function run(page) {
   ).catch(() => { });
   await page.waitForTimeout(500);
 
-  // Against a protected server (the deployed site) the page cannot write without
-  // a code, so its boot probe is answered 401 - the expected answer, not a
-  // failure. The suite only needs the board to have loaded.
-  const chip = await page.locator("#saveState").innerText();
-  out.boardIsLocked = chip.includes("Locked");
+  // Whether the page itself can write is expected to differ between runs: on the
+  // deployed site a visitor without a code is locked out by design, while on the
+  // local test board writes are open. Reported, never asserted - the assertions
+  // below test the API with a real session. The chip is not a reliable signal:
+  // it says "Saved" while the board is still the in-file sample and only flips
+  // to "Locked" once the write probe has answered.
+  out.pageChip = (await page.locator("#saveState").innerText()).trim();
 
   // Markers this suite is about to store. Matching on them, rather than diffing
   // the whole board, tells "my cleanup failed" apart from "another suite or a
@@ -205,7 +207,7 @@ export default async function run(page) {
   // this browser cannot write at all (a board locked behind the sign-in gate), so
   // the suite still reports its auth findings instead of dying.
   const label = marker("Session shopping");
-  const pageWrite = out.boardIsLocked ? { put: 0, stored: false, skipped: true } : await page.evaluate(async (label) => {
+  const pageWrite = await page.evaluate(async (label) => {
     const read = async () => (await fetch("/api/board")).json();
     const board = await read();
     const original = JSON.stringify(board);
@@ -227,11 +229,8 @@ export default async function run(page) {
     });
     return { put: put.status, stored };
   }, label);
-  if (pageWrite.skipped) out.pageSave = "skipped (board locked for this browser)";
-  else {
-    out.pageSaveStatus = pageWrite.put;
-    out.pageStillSaves = pageWrite.put === 200 && pageWrite.stored === true;
-  }
+  out.pageSaveStatus = pageWrite.put;
+  out.pageStillSaves = pageWrite.put === 200 && pageWrite.stored === true;
 
   /* Nothing this suite wrote may be left behind. */
   const stored = await readBoard(page);
